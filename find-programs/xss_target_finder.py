@@ -526,13 +526,13 @@ def main():
     )
     
     parser.add_argument(
-        '--hackerone', '-h',
+        '--hackerone', '-H',
         action='store_true',
         help='Use only HackerOne'
     )
     
     parser.add_argument(
-        '--bugcrowd', '-b',
+        '--bugcrowd', '-B',
         action='store_true',
         help='Use only BugCrowd'
     )

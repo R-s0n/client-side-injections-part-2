@@ -13,7 +13,38 @@ A Python tool for identifying promising targets for client-side injection testin
 
 ## Installation
 
+### On Kali Linux (or any externally-managed Python environment)
+
+Kali Linux uses externally-managed Python environments. The best practice is to use a virtual environment:
+
 ```bash
+cd find-programs
+
+python3 -m venv venv
+
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+To deactivate the virtual environment when done:
+```bash
+deactivate
+```
+
+### On other systems
+
+If you don't have the externally-managed restriction:
+
+```bash
+pip install -r requirements.txt
+```
+
+Or use a virtual environment (recommended):
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -29,6 +60,11 @@ export BUGCROWD_API_KEY="your_bugcrowd_api_key"
 At least one API key must be set for the tool to work.
 
 ## Usage
+
+**Note:** If using a virtual environment, make sure it's activated first:
+```bash
+source venv/bin/activate
+```
 
 ### Basic Usage
 
@@ -47,11 +83,13 @@ python xss_target_finder.py --dom-based
 Use only HackerOne:
 ```bash
 python xss_target_finder.py --hackerone --reflected-stored
+python xss_target_finder.py -H --reflected-stored
 ```
 
 Use only BugCrowd:
 ```bash
 python xss_target_finder.py --bugcrowd --dom-based
+python xss_target_finder.py -B --dom-based
 ```
 
 ### Subdomain Enumeration

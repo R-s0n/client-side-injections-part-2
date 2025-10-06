@@ -163,8 +163,59 @@ __proto__[onerror]=alert('Prototype Pollution')
 │   ├── styles.css             # Global styles
 │   ├── dom-based.html         # DOM-based XSS demo
 │   └── prototype-pollution.html # Prototype pollution demo
+├── find-programs/              # Bug bounty target finder tool
+│   ├── xss_target_finder.py   # Main Python script
+│   ├── requirements.txt       # Python dependencies
+│   └── README.md              # Tool documentation
 └── README.md                   # This file
 ```
+
+## 🎯 Bug Bounty Target Finder
+
+The `find-programs/` directory contains a Python tool for identifying promising client-side injection targets on bug bounty platforms.
+
+### Features
+
+- **Platform Integration:** Fetches public programs from HackerOne and BugCrowd APIs
+- **Technology Detection:** Identifies frameworks, JavaScript stacks, and security controls
+- **Target Scoring:** Rates targets from 0-100 based on exploitability
+- **Continuous Discovery:** Runs indefinitely to find new targets over time
+- **Subdomain Enumeration:** Optional certificate transparency log scanning
+
+### Quick Start
+
+```bash
+cd find-programs
+
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+export HACKERONE_API_KEY="username:token"
+export BUGCROWD_API_KEY="your_api_key"
+
+python xss_target_finder.py --reflected-stored
+```
+
+### Target Types
+
+**Reflected/Stored XSS (`--reflected-stored`):**
+- Targets without virtual DOM frameworks
+- Traditional server-side rendered applications
+- Simpler JavaScript implementations
+
+**DOM-Based XSS (`--dom-based`):**
+- Targets with significant custom JavaScript
+- Applications with exposed webpack bundles
+- Complex client-side implementations
+
+### Output
+
+The tool generates:
+- `programs_*.json` - Complete program data
+- `xss_targets_*.txt` - Scored targets (e.g., `https://example.com -- 85`)
+
+See `find-programs/README.md` for complete documentation.
 
 ## ⚠️ Security Notice
 
