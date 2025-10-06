@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Client-Side Injection Training Lab</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <h1>🔒 Client-Side Injection Training Lab</h1>
+    
+    <div class="intro-section">
+      <p>Welcome to the Client-Side Injection Training Lab! This interactive application is designed to help you understand common client-side vulnerabilities and the compensating security controls that protect against them.</p>
+      
+      <div class="info-box">
+        <h3>⚠️ Educational Purpose Only</h3>
+        <p>This application intentionally contains security vulnerabilities for educational purposes. The techniques demonstrated here should ONLY be used in controlled environments for learning and testing. Never attempt these attacks on systems you don't own or have explicit permission to test.</p>
+      </div>
+    </div>
+
+    <h2>🎯 Vulnerability Types</h2>
+    
+    <div class="exploit-grid">
+      <a href="/reflected" class="exploit-card">
+        <h3>Reflected XSS</h3>
+        <p>Explore how malicious scripts can be reflected from user input via URL parameters (GET requests) and immediately executed in the browser.</p>
+      </a>
+
+      <a href="/stored" class="exploit-card">
+        <h3>Stored XSS</h3>
+        <p>Learn about persistent XSS attacks where malicious content is stored in a database via POST requests and later retrieved and executed.</p>
+      </a>
+
+      <a href="/dom-based" class="exploit-card">
+        <h3>DOM-Based XSS</h3>
+        <p>Understand client-side XSS where the vulnerability exists in the DOM manipulation code, using hash fragments for attack vectors.</p>
+      </a>
+
+      <a href="/prototype-pollution" class="exploit-card">
+        <h3>Prototype Pollution</h3>
+        <p>Discover how JavaScript prototype pollution can lead to XSS-like exploits by manipulating object prototypes via hash fragments.</p>
+      </a>
+    </div>
+
+    <div class="controls-section">
+      <h2>🛡️ Compensating Security Controls</h2>
+      <p>Understanding how each control affects client-side injection attacks is critical for building secure applications. Each control operates at a different layer and provides varying levels of protection:</p>
+      
+      <div class="controls-grid">
+        <div class="control-item">
+          <strong>Client-Side Validation</strong>
+          <p><span class="effectiveness">⚠️ Easily Bypassed</span></p>
+          <p class="control-description">Validates input in the browser before submission. Checks for dangerous characters like <code>&lt;</code> and <code>&gt;</code>.</p>
+          <p class="impact"><strong>Impact on XSS:</strong> Provides user feedback but offers NO security - attackers can disable JavaScript, intercept requests, or directly call APIs. Never rely on this alone.</p>
+          <p class="use-case"><strong>Best Used For:</strong> User experience and preventing accidental mistakes, not security.</p>
+        </div>
+
+        <div class="control-item">
+          <strong>Server-Side Validation</strong>
+          <p><span class="effectiveness">✅ Effective Defense</span></p>
+          <p class="control-description">Backend validates all input before processing. Rejects requests containing dangerous patterns like <code>&lt;script&gt;</code>, <code>javascript:</code>, and event handlers.</p>
+          <p class="impact"><strong>Impact on XSS:</strong> Strong defense for Reflected and Stored XSS. Prevents malicious input from being processed or stored. Has NO effect on DOM-Based or Prototype Pollution since they're client-side only.</p>
+          <p class="use-case"><strong>Best Used For:</strong> Primary defense against server-processed attacks.</p>
+        </div>
+
+        <div class="control-item">
+          <strong>Output Encoding</strong>
+          <p><span class="effectiveness">✅ Highly Effective</span></p>
+          <p class="control-description">Converts dangerous characters to HTML entities (<code>&lt;</code> becomes <code>&amp;lt;</code>). Scripts are displayed as text instead of executed.</p>
+          <p class="impact"><strong>Impact on XSS:</strong> Extremely effective against ALL XSS types. The encoded payload is harmless because browsers render it as text, not code. This is the gold standard for XSS prevention.</p>
+          <p class="use-case"><strong>Best Used For:</strong> Displaying user-generated content safely. Essential for any application.</p>
+        </div>
+
+        <div class="control-item">
+          <strong>WAF (Web Application Firewall)</strong>
+          <p><span class="effectiveness">⚠️ Good but Bypassable</span></p>
+          <p class="control-description">Network-level filter that inspects HTTP requests. Blocks common attack patterns using regex and signatures.</p>
+          <p class="impact"><strong>Impact on XSS:</strong> Effective against common payloads but can be bypassed with obfuscation, encoding, or novel techniques. Only protects server-side attacks (Reflected/Stored XSS), not client-side (DOM/Prototype Pollution).</p>
+          <p class="use-case"><strong>Best Used For:</strong> Defense-in-depth, protecting legacy apps, detecting attack patterns.</p>
+        </div>
+
+        <div class="control-item">
+          <strong>Content Security Policy (CSP)</strong>
+          <p><span class="effectiveness">✅ Multi-Layer Protection</span></p>
+          <p class="control-description">Browser-enforced policy controlling script execution and network requests. Multiple directives available: <code>script-src</code>, <code>connect-src</code>, <code>form-action</code>.</p>
+          <p class="impact"><strong>Impact on XSS:</strong> Two-layer defense: (1) <code>script-src</code> prevents script execution, (2) <code>connect-src</code>/<code>form-action</code> prevent data exfiltration even if XSS succeeds. Protects against ALL attack types including post-exploitation.</p>
+          <p class="use-case"><strong>Best Used For:</strong> Defense-in-depth, limiting damage when vulnerabilities exist, preventing session hijacking.</p>
+        </div>
+
+        <div class="control-item">
+          <strong>Secure Cookie Flags</strong>
+          <p><span class="effectiveness">⚠️ Partial Protection</span></p>
+          <p class="control-description">Cookie attributes that restrict access: <code>HttpOnly</code> prevents JavaScript access, <code>Secure</code> requires HTTPS, <code>SameSite</code> prevents CSRF.</p>
+          <p class="impact"><strong>Impact on XSS:</strong> Does NOT prevent XSS, but limits damage. With <code>HttpOnly</code>, <code>document.cookie</code> returns empty even if XSS executes, preventing session hijacking. Attacker can still modify DOM, make requests as the user, or exfiltrate page data.</p>
+          <p class="use-case"><strong>Best Used For:</strong> Protecting session tokens, reducing impact of successful XSS attacks.</p>
+        </div>
+      </div>
+
+      <div class="defense-depth-box">
+        <h3>🎯 Defense-in-Depth Strategy</h3>
+        <p>No single control is perfect. The most secure applications layer multiple controls:</p>
+        <ul>
+          <li><strong>Layer 1 (Input):</strong> Server-Side Validation + WAF - Filter dangerous input before it enters the system</li>
+          <li><strong>Layer 2 (Storage/Processing):</strong> Output Encoding - Ensure data is safe when rendered</li>
+          <li><strong>Layer 3 (Execution):</strong> CSP script-src - Prevent unauthorized scripts from running</li>
+          <li><strong>Layer 4 (Exfiltration):</strong> CSP connect-src/form-action + Secure Cookies - Limit damage even if XSS succeeds</li>
+        </ul>
+        <p class="highlight">💡 <strong>Key Insight:</strong> Even if an attacker achieves XSS (Layer 3 fails), proper CSP and cookie flags can prevent them from stealing sessions or exfiltrating data.</p>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <h3>📚 How to Use This Lab</h3>
+      <ol style="margin-left: 20px;">
+        <li>Choose a vulnerability type from the cards above</li>
+        <li>Configure which security controls you want to enable</li>
+        <li>Try the provided example payloads or create your own</li>
+        <li>Observe how different controls affect the attack's success</li>
+        <li>Experiment with combinations of controls to understand defense-in-depth</li>
+      </ol>
+    </div>
+
+    <div class="example-box">
+      <h3>💡 Learning Objectives</h3>
+      <ul>
+        <li>Understand different types of client-side injection attacks</li>
+        <li>Learn how each vulnerability can be exploited</li>
+        <li>Discover which security controls are most effective</li>
+        <li>Recognize that no single control is foolproof</li>
+        <li>Appreciate the importance of defense-in-depth strategies</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>
+

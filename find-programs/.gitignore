@@ -1,0 +1,11 @@
+programs_*.json
+xss_targets_*.txt
+*.pyc
+__pycache__/
+.env
+venv/
+env/
+*.log
+chromedriver*
+.DS_Store
+

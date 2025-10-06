@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Client-Side Prototype Pollution Demo</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="home-button">🏠 Home</a>
+    <h1>Client-Side Prototype Pollution Demo</h1>
+    
+    <div class="info-box">
+      <h3>About Client-Side Prototype Pollution</h3>
+      <p>Prototype Pollution is a JavaScript vulnerability where an attacker can inject properties into Object.prototype, affecting all objects. This can lead to XSS-like exploits when polluted properties are used unsafely in the DOM.</p>
+      <p><strong>Attack Vector:</strong> Hash fragment with JSON-like structure (e.g., #__proto__[prop]=value)</p>
+    </div>
+
+    <div class="vulnerable-code-box">
+      <h3>⚠️ Vulnerable Code Pattern</h3>
+      <p>This is the dangerous code that allows prototype pollution:</p>
+      <pre><code><span class="code-comment">// Vulnerable merge function - recursively copies properties</span>
+<span class="code-keyword">function</span> <span class="code-function">merge</span>(<span class="code-variable">target</span>, <span class="code-variable">source</span>) {
+  <span class="code-keyword">for</span> (<span class="code-keyword">let</span> <span class="code-variable">key</span> <span class="code-keyword">in</span> <span class="code-variable">source</span>) {
+    <span class="code-comment">// ❌ DANGEROUS! No validation of key names</span>
+    <span class="code-keyword">if</span> (<span class="code-variable">key</span> === <span class="code-danger">'__proto__'</span> || <span class="code-variable">key</span> === <span class="code-danger">'constructor'</span> || <span class="code-variable">key</span> === <span class="code-danger">'prototype'</span>) {
+      <span class="code-variable">target</span>[<span class="code-variable">key</span>] = <span class="code-variable">source</span>[<span class="code-variable">key</span>];  <span class="code-comment">// &lt;-- Pollutes prototype!</span>
+    } <span class="code-keyword">else</span> {
+      <span class="code-variable">target</span>[<span class="code-variable">key</span>] = <span class="code-variable">source</span>[<span class="code-variable">key</span>];
+    }
+  }
+}
+
+<span class="code-comment">// Attacker payload: __proto__[innerHTML]=&lt;img src=x onerror=alert(1)&gt;</span>
+<span class="code-keyword">const</span> <span class="code-variable">malicious</span> = { <span class="code-danger">__proto__</span>: { <span class="code-variable">innerHTML</span>: <span class="code-string">"&lt;img src=x onerror=alert(1)&gt;"</span> } };
+<span class="code-function">merge</span>({}, <span class="code-variable">malicious</span>);
+
+<span class="code-comment">// Now ALL objects inherit the polluted property!</span>
+<span class="code-keyword">const</span> <span class="code-variable">testObj</span> = {};
+<span class="code-variable">console</span>.<span class="code-function">log</span>(<span class="code-variable">testObj</span>.<span class="code-variable">innerHTML</span>);  <span class="code-comment">// &lt;img src=x onerror=alert(1)&gt;</span></code></pre>
+      <p><strong>Why it's dangerous:</strong> Allowing <code>__proto__</code>, <code>constructor</code>, or <code>prototype</code> as keys lets attackers modify <code>Object.prototype</code>, affecting every object in your application. When code later accesses undefined properties, it falls back to the polluted prototype values.</p>
+      <p><strong>Safe alternatives:</strong></p>
+      <pre><code><span class="code-comment">// ✅ Option 1: Block dangerous keys</span>
+<span class="code-keyword">const</span> <span class="code-variable">dangerousKeys</span> = [<span class="code-string">'__proto__'</span>, <span class="code-string">'constructor'</span>, <span class="code-string">'prototype'</span>];
+<span class="code-keyword">if</span> (<span class="code-variable">dangerousKeys</span>.<span class="code-function">includes</span>(<span class="code-variable">key</span>)) <span class="code-keyword">continue</span>;  <span class="code-comment">// Skip dangerous keys</span>
+
+<span class="code-comment">// ✅ Option 2: Use Object.create(null) - no prototype chain</span>
+<span class="code-keyword">const</span> <span class="code-variable">safeObj</span> = <span class="code-variable">Object</span>.<span class="code-function">create</span>(<span class="code-keyword">null</span>);  <span class="code-comment">// No inherited properties</span>
+
+<span class="code-comment">// ✅ Option 3: Freeze Object.prototype</span>
+<span class="code-variable">Object</span>.<span class="code-function">freeze</span>(<span class="code-variable">Object</span>.<span class="code-variable">prototype</span>);  <span class="code-comment">// Prevent modifications</span></code></pre>
+    </div>
+
+    <fieldset>
+      <legend>Security Controls Configuration</legend>
+      
+      <div class="control-group">
+        <label>
+          <input type="checkbox" id="prototypeFreeze">
+          Freeze Object.prototype
+        </label>
+        <label>
+          <input type="checkbox" id="inputValidation">
+          Validate Dangerous Keys
+        </label>
+        <label>
+          <input type="checkbox" id="sanitizeOutput">
+          Sanitize Output
+        </label>
+        <label>
+          <input type="checkbox" id="nullPrototype">
+          Use Object.create(null)
+        </label>
+      </div>
+
+      <div class="control-group">
+        <label for="csp">Content Security Policy:</label>
+        <select id="csp">
+          <optgroup label="Script Execution Controls">
+            <option value="none">None</option>
+            <option value="strict">Strict (self only)</option>
+            <option value="unsafe-inline">Allow unsafe-inline</option>
+          </optgroup>
+          <optgroup label="Post-Exploitation Prevention">
+            <option value="block-exfiltration">Block Data Exfiltration</option>
+            <option value="allow-self-only">Allow Self-Origin Only</option>
+            <option value="block-requests">Block All Requests</option>
+            <option value="block-forms">Block Form Submissions</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <button type="button" onclick="applySecurityControls()" class="apply-controls-btn">🔄 Apply Security Controls</button>
+    </fieldset>
+
+    <form id="payloadForm" onsubmit="return false;">
+      <fieldset>
+        <legend>User Input (via Hash Fragment)</legend>
+        <input type="text" id="userInput" placeholder="Try: __proto__[testProp]=<img src=x onerror=alert('PP')>">
+        <button type="button" onclick="parseHash()">Parse Hash & Apply</button>
+        <button type="button" onclick="testPollution()">Test Pollution</button>
+        <button type="button" onclick="resetPage()">Reset Page</button>
+      </fieldset>
+    </form>
+
+    <div class="output-box">
+      <h3>Prototype Status:</h3>
+      <div id="prototypeStatus" class="output-content">
+        <p>No pollution detected yet...</p>
+      </div>
+    </div>
+
+    <div class="output-box">
+      <h3>Display Area (Vulnerable to Polluted Properties):</h3>
+      <div id="displayArea" class="output-content">
+        <p>Content will be rendered here...</p>
+      </div>
+    </div>
+
+    <div class="example-box">
+      <h3>Try These Payloads:</h3>
+      <p><strong>Simple Test (verify pollution works):</strong></p>
+      <ul>
+        <li><code>__proto__[testProp]=polluted</code> - Then console: <code>({}).testProp</code> should return "polluted"</li>
+        <li><code>__proto__[myValue]=hacked</code> - Then console: <code>myValue</code> should return "hacked"</li>
+      </ul>
+      <p><strong>XSS via Prototype Pollution:</strong></p>
+      <ul>
+        <li><code>__proto__[innerHTML]=&lt;img src=x onerror=alert('Polluted')&gt;</code> - Pollutes innerHTML property</li>
+        <li><code>__proto__[onerror]=alert('Prototype Pollution')</code> - Pollutes onerror handler</li>
+        <li><code>constructor[prototype][xss]=&lt;svg/onload=alert('PP-XSS')&gt;</code> - Via constructor</li>
+      </ul>
+      <p><strong>How it works:</strong> The payload pollutes Object.prototype. When the app accesses a property that doesn't exist on an object, JavaScript looks up the prototype chain and finds your polluted value. Click "Test Pollution" to see which properties are now inherited by all objects!</p>
+    </div>
+
+    <div class="active-controls" id="activeControls">
+      <h3>Active Security Controls:</h3>
+      <ul>
+        <li>Prototype Freeze: <strong id="status-freeze">❌ Disabled</strong></li>
+        <li>Input Validation: <strong id="status-validation">❌ Disabled</strong></li>
+        <li>Output Sanitization: <strong id="status-sanitization">❌ Disabled</strong></li>
+        <li>Null Prototype Objects: <strong id="status-null">❌ Disabled</strong></li>
+        <li>CSP: <strong id="status-csp">❌ Disabled</strong></li>
+      </ul>
+    </div>
+
+    <div class="info-box">
+      <h3>🔍 Understanding the Attack</h3>
+      <ol style="margin-left: 20px;">
+        <li><strong>Pollution Phase:</strong> Attacker injects malicious properties into Object.prototype via hash fragment</li>
+        <li><strong>Propagation:</strong> All objects in the application inherit these polluted properties</li>
+        <li><strong>Exploitation:</strong> When code accesses undefined properties or uses dynamic property access, malicious values execute</li>
+        <li><strong>Impact:</strong> Can lead to XSS, authentication bypass, or application logic manipulation</li>
+      </ol>
+    </div>
+
+    <div class="example-box">
+      <h3>💡 Real-World Scenarios</h3>
+      <ul>
+        <li><strong>Template Rendering:</strong> Polluted properties used in template engines</li>
+        <li><strong>Configuration Objects:</strong> Default values coming from polluted prototype</li>
+        <li><strong>DOM Manipulation:</strong> Polluted attributes applied to DOM elements</li>
+        <li><strong>Event Handlers:</strong> Polluted event handler properties</li>
+      </ul>
+    </div>
+
+    <p><a href="/" class="back-link">← Back to Home</a></p>
+  </div>
+
+  <script>
+    function applySecurityControls() {
+      window.location.hash = '';
+      window.location.reload();
+    }
+
+    const cspMeta = document.createElement('meta');
+    cspMeta.httpEquiv = 'Content-Security-Policy';
+    
+    function updateStatusDisplay() {
+      const prototypeFreeze = document.getElementById('prototypeFreeze').checked;
+      const inputValidation = document.getElementById('inputValidation').checked;
+      const sanitizeOutput = document.getElementById('sanitizeOutput').checked;
+      const nullPrototype = document.getElementById('nullPrototype').checked;
+      const csp = document.getElementById('csp').value;
+      
+      document.getElementById('status-freeze').innerHTML = prototypeFreeze ? '✅ Enabled' : '❌ Disabled';
+      document.getElementById('status-validation').innerHTML = inputValidation ? '✅ Enabled' : '❌ Disabled';
+      document.getElementById('status-sanitization').innerHTML = sanitizeOutput ? '✅ Enabled' : '❌ Disabled';
+      document.getElementById('status-null').innerHTML = nullPrototype ? '✅ Enabled' : '❌ Disabled';
+      document.getElementById('status-csp').innerHTML = csp !== 'none' ? '✅ ' + csp : '❌ Disabled';
+      
+      if (prototypeFreeze) {
+        try {
+          Object.freeze(Object.prototype);
+          console.log('Object.prototype frozen');
+        } catch (e) {
+          console.error('Failed to freeze prototype:', e);
+        }
+      }
+      
+      if (csp !== 'none') {
+        let cspValue = '';
+        switch (csp) {
+          case 'strict':
+            cspValue = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';";
+            break;
+          case 'unsafe-inline':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';";
+            break;
+          case 'block-exfiltration':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'self';";
+            break;
+          case 'allow-self-only':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'self';";
+            break;
+          case 'block-requests':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:;";
+            break;
+          case 'block-forms':
+            cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'; base-uri 'none';";
+            break;
+        }
+        cspMeta.content = cspValue;
+        if (!document.querySelector('meta[http-equiv="Content-Security-Policy"]')) {
+          document.head.appendChild(cspMeta);
+        }
+      } else {
+        const existingMeta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+        if (existingMeta) {
+          existingMeta.remove();
+        }
+      }
+    }
+
+    function htmlEncode(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function isDangerousKey(key) {
+      const dangerous = ['__proto__', 'prototype', 'constructor'];
+      return dangerous.some(d => key.includes(d));
+    }
+
+    const userInputField = document.getElementById('userInput');
+    const ppInputFieldset = userInputField.closest('fieldset');
+    let ppErrorMessage = null;
+
+    function showPPValidationError(message) {
+      userInputField.classList.add('validation-error');
+      ppInputFieldset.classList.add('validation-error');
+      
+      if (!ppErrorMessage) {
+        ppErrorMessage = document.createElement('div');
+        ppErrorMessage.className = 'error-message';
+        ppInputFieldset.insertBefore(ppErrorMessage, userInputField.nextSibling);
+      }
+      ppErrorMessage.textContent = message;
+      
+      setTimeout(() => {
+        userInputField.classList.remove('validation-error');
+        ppInputFieldset.classList.remove('validation-error');
+      }, 3000);
+    }
+
+    function clearPPValidationError() {
+      userInputField.classList.remove('validation-error');
+      ppInputFieldset.classList.remove('validation-error');
+      if (ppErrorMessage) {
+        ppErrorMessage.remove();
+        ppErrorMessage = null;
+      }
+    }
+
+    userInputField.addEventListener('input', function(e) {
+      if (document.getElementById('inputValidation').checked) {
+        const input = e.target.value;
+        const dangerous = /<|>/.test(input);
+        
+        if (!dangerous) {
+          clearPPValidationError();
+        }
+      } else {
+        clearPPValidationError();
+      }
+    });
+
+    function merge(target, source) {
+      const nullPrototype = document.getElementById('nullPrototype').checked;
+      const inputValidation = document.getElementById('inputValidation').checked;
+      const prototypeFreeze = document.getElementById('prototypeFreeze').checked;
+      
+      if (prototypeFreeze) {
+        console.warn('Object.prototype is frozen - pollution blocked');
+        return;
+      }
+      
+      const keys = Object.keys(source);
+      
+      for (let key of keys) {
+        if (inputValidation && isDangerousKey(key)) {
+          console.warn('Blocked dangerous key:', key);
+          continue;
+        }
+        
+        if (nullPrototype) {
+          const safeTarget = Object.create(null);
+          safeTarget[key] = source[key];
+          console.log('Using null prototype object for:', key);
+        } else {
+          if (key === '__proto__') {
+            if (typeof source[key] === 'object' && source[key] !== null) {
+              for (let protoKey in source[key]) {
+                try {
+                  Object.prototype[protoKey] = source[key][protoKey];
+                  console.log('✅ Polluted Object.prototype.' + protoKey + ' =', source[key][protoKey]);
+                } catch (e) {
+                  console.error('❌ Pollution blocked:', e);
+                }
+              }
+            }
+          } else if (key === 'constructor') {
+            if (source[key] && source[key].prototype) {
+              for (let protoKey in source[key].prototype) {
+                try {
+                  Object.prototype[protoKey] = source[key].prototype[protoKey];
+                  console.log('✅ Polluted via constructor.prototype.' + protoKey + ' =', source[key].prototype[protoKey]);
+                } catch (e) {
+                  console.error('❌ Pollution blocked:', e);
+                }
+              }
+            }
+          } else {
+            target[key] = source[key];
+          }
+        }
+      }
+    }
+
+    function parseHash() {
+      updateStatusDisplay();
+      
+      let hash = decodeURIComponent(window.location.hash.slice(1));
+      const userInput = document.getElementById('userInput').value;
+      
+      if (userInput) {
+        hash = userInput;
+        window.location.hash = encodeURIComponent(userInput);
+      }
+      
+      if (!hash) {
+        showPPValidationError('Please enter a payload in the input field');
+        return;
+      }
+      
+      const inputValidation = document.getElementById('inputValidation').checked;
+      
+      if (inputValidation) {
+        const dangerous = /<|>/.test(hash);
+        if (dangerous) {
+          showPPValidationError('Input Validation: Input contains dangerous characters (< or >)');
+          return;
+        }
+        
+        if (isDangerousKey(hash)) {
+          showPPValidationError('Input Validation: Dangerous keys detected and blocked!');
+          return;
+        }
+      }
+      
+      try {
+        const parts = hash.match(/([^\[=]+)(?:\[([^\]]+)\])?=(.+)/);
+        
+        if (parts) {
+          const [, base, prop, value] = parts;
+          const obj = {};
+          
+          if (prop) {
+            if (base === '__proto__' || base === 'constructor') {
+              const nestedObj = {};
+              nestedObj[prop] = value;
+              Object.defineProperty(obj, base, {
+                value: nestedObj,
+                writable: true,
+                enumerable: true,
+                configurable: true
+              });
+            } else {
+              obj[base] = {};
+              obj[base][prop] = value;
+            }
+          } else {
+            obj[base] = value;
+          }
+          
+          console.log('Parsing payload:', hash);
+          console.log('Created object structure:', JSON.stringify(obj, null, 2));
+          
+          merge({}, obj);
+          
+          displayPrototypeStatus();
+        }
+      } catch (e) {
+        console.error('Parse error:', e);
+      }
+    }
+
+    function displayPrototypeStatus() {
+      const statusDiv = document.getElementById('prototypeStatus');
+      let html = '<h4>Checking Object.prototype...</h4>';
+      
+      const testObj = {};
+      const knownProps = ['toString', 'valueOf', 'hasOwnProperty', 'constructor'];
+      
+      html += '<ul style="list-style: none; padding: 0;">';
+      
+      for (let key in testObj) {
+        if (!knownProps.includes(key)) {
+          html += `<li style="color: #c62828; font-weight: bold;">⚠️ Polluted Property: ${htmlEncode(key)} = ${htmlEncode(String(testObj[key]))}</li>`;
+        }
+      }
+      
+      const prototypeKeys = Object.keys(Object.prototype);
+      if (prototypeKeys.length > 0) {
+        prototypeKeys.forEach(key => {
+          html += `<li style="color: #c62828; font-weight: bold;">⚠️ Direct Prototype Property: ${htmlEncode(key)}</li>`;
+        });
+      }
+      
+      if (html.includes('Polluted') || html.includes('Direct Prototype')) {
+        html += '</ul><p style="color: #c62828; font-weight: bold;">🔴 POLLUTION DETECTED!</p>';
+      } else {
+        html += '</ul><p style="color: #2e7d32; font-weight: bold;">✅ No pollution detected</p>';
+      }
+      
+      statusDiv.innerHTML = html;
+    }
+
+    function testPollution() {
+      const sanitizeOutput = document.getElementById('sanitizeOutput').checked;
+      const displayArea = document.getElementById('displayArea');
+      
+      const testObj = {};
+      const content = testObj.customProp || testObj.innerHTML || 'No polluted properties detected';
+      
+      if (sanitizeOutput) {
+        displayArea.textContent = content;
+      } else {
+        displayArea.innerHTML = content;
+      }
+      
+      displayPrototypeStatus();
+    }
+
+    function resetPage() {
+      window.location.hash = '';
+      window.location.reload();
+    }
+
+    document.getElementById('prototypeFreeze').addEventListener('change', updateStatusDisplay);
+    document.getElementById('inputValidation').addEventListener('change', function() {
+      updateStatusDisplay();
+      if (!this.checked) {
+        clearPPValidationError();
+      }
+    });
+    document.getElementById('sanitizeOutput').addEventListener('change', updateStatusDisplay);
+    document.getElementById('nullPrototype').addEventListener('change', updateStatusDisplay);
+    document.getElementById('csp').addEventListener('change', updateStatusDisplay);
+
+    updateStatusDisplay();
+    displayPrototypeStatus();
+
+    if (window.location.hash) {
+      document.getElementById('userInput').value = decodeURIComponent(window.location.hash.slice(1));
+      parseHash();
+    }
+
+    document.querySelectorAll('.example-box code').forEach(code => {
+      code.style.cursor = 'pointer';
+      code.addEventListener('click', function() {
+        document.getElementById('userInput').value = this.textContent;
+        alert('Payload copied to input field! Click "Parse Hash & Apply" then "Test Pollution" to see the effect.');
+      });
+    });
+  </script>
+</body>
+</html>
+
