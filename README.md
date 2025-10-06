@@ -191,11 +191,17 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-export HACKERONE_API_KEY="username:token"
+export HACKERONE_API_KEY="identifier:token"
 export BUGCROWD_API_KEY="your_api_key"
 
 python xss_target_finder.py --reflected-stored
 ```
+
+**Getting API Keys:**
+- **HackerOne**: Go to Settings → API Tokens (https://hackerone.com/settings/api_token/edit)
+  - Format: `identifier:token` (e.g., `abc123:1a2b3c4d5e`)
+- **BugCrowd**: Go to Settings → API
+  - Format: Just the token value
 
 ### Target Types
 

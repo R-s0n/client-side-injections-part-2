@@ -53,11 +53,33 @@ pip install -r requirements.txt
 Set your API keys as environment variables:
 
 ```bash
-export HACKERONE_API_KEY="username:token"
+export HACKERONE_API_KEY="identifier:token"
 export BUGCROWD_API_KEY="your_bugcrowd_api_key"
 ```
 
 At least one API key must be set for the tool to work.
+
+### Getting Your HackerOne API Key
+
+1. Log in to HackerOne
+2. Go to Settings → API Tokens (https://hackerone.com/settings/api_token/edit)
+3. Create a new API token or use an existing one
+4. The format should be: `identifier:token`
+   - Example: `abc123def456:1a2b3c4d5e6f7g8h9i0j`
+5. Set the environment variable:
+   ```bash
+   export HACKERONE_API_KEY="your_identifier:your_token"
+   ```
+
+### Getting Your BugCrowd API Key
+
+1. Log in to BugCrowd
+2. Go to Settings → API
+3. Generate an API token
+4. Set the environment variable:
+   ```bash
+   export BUGCROWD_API_KEY="your_token"
+   ```
 
 ## Usage
 

@@ -85,15 +85,22 @@ class TargetFinder:
                 url = f"https://api.hackerone.com/v1/hackers/programs"
                 params = {'page[number]': page, 'page[size]': 100}
                 
+                headers = {
+                    'Accept': 'application/json',
+                }
+                
                 response = self.session.get(
                     url,
                     auth=(username, token),
+                    headers=headers,
                     params=params,
                     timeout=30
                 )
                 
                 if response.status_code != 200:
                     logger.error(f"HackerOne API error: {response.status_code}")
+                    logger.error(f"Response: {response.text[:500]}")
+                    logger.error(f"Make sure your API key format is: identifier:token")
                     break
                     
                 data = response.json()
@@ -108,6 +115,7 @@ class TargetFinder:
                         scope_response = self.session.get(
                             f"https://api.hackerone.com/v1/hackers/programs/{handle}",
                             auth=(username, token),
+                            headers=headers,
                             timeout=30
                         )
                         
