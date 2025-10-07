@@ -212,7 +212,7 @@ class TargetFinder:
         
         if platform == 'hackerone':
             try:
-                relationships = program['data'].get('data', {}).get('relationships', {})
+                relationships = program['data'].get('relationships', {})
                 structured_scopes = relationships.get('structured_scopes', {}).get('data', [])
                 
                 for scope in structured_scopes:
