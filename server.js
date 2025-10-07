@@ -77,30 +77,62 @@ function cspMiddleware(req, res, next) {
     
     switch (cspEnabled) {
       case 'strict':
-        cspValue = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;";
+        cspValue = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; object-src 'none';";
         break;
       case 'nonce':
         const nonce = Math.random().toString(36).substring(2, 15);
         req.nonce = nonce;
-        cspValue = `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'self' 'unsafe-inline';`;
+        cspValue = `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'self' 'unsafe-inline'; object-src 'none';`;
         break;
       case 'unsafe-inline':
         cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';";
         break;
+      case 'unsafe-eval':
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline';";
+        break;
       case 'no-unsafe':
-        cspValue = "default-src 'self'; script-src 'self'; style-src 'self';";
+        cspValue = "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none';";
+        break;
+      case 'strict-dynamic':
+        cspValue = "default-src 'self'; script-src 'strict-dynamic' 'nonce-xyz' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none';";
+        break;
+      case 'block-all-scripts':
+        cspValue = "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; object-src 'none';";
+        break;
+      case 'block-inline-only':
+        cspValue = "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none';";
         break;
       case 'block-exfiltration':
-        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'self';";
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'self'; object-src 'none';";
         break;
       case 'allow-self-only':
-        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'self';";
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none';";
         break;
       case 'block-requests':
-        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:;";
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; object-src 'none';";
         break;
       case 'block-forms':
-        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'; base-uri 'none';";
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'; base-uri 'none'; object-src 'none';";
+        break;
+      case 'block-plugins':
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; frame-src 'none';";
+        break;
+      case 'block-framing':
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none';";
+        break;
+      case 'block-base-uri':
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; base-uri 'none';";
+        break;
+      case 'upgrade-insecure':
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; upgrade-insecure-requests;";
+        break;
+      case 'report-only':
+        cspValue = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; report-uri /csp-report;";
+        res.setHeader('Content-Security-Policy-Report-Only', cspValue);
+        next();
+        return;
+      case 'paranoid':
+        cspValue = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none';";
         break;
     }
     
@@ -223,18 +255,36 @@ app.get('/reflected', (req, res) => {
           <div class="control-group">
             <label for="cspSelect">Content Security Policy:</label>
             <select id="cspSelect">
-              <optgroup label="Script Execution Controls">
-                <option value="none" ${csp === 'none' ? 'selected' : ''}>None</option>
-                <option value="strict" ${csp === 'strict' ? 'selected' : ''}>Strict (self only)</option>
-                <option value="unsafe-inline" ${csp === 'unsafe-inline' ? 'selected' : ''}>Allow unsafe-inline</option>
-                <option value="nonce" ${csp === 'nonce' ? 'selected' : ''}>Nonce-based</option>
-                <option value="no-unsafe" ${csp === 'no-unsafe' ? 'selected' : ''}>No unsafe-eval/inline</option>
+              <optgroup label="🚫 No Protection">
+                <option value="none" ${csp === 'none' ? 'selected' : ''}>None - No CSP (XSS executes freely)</option>
               </optgroup>
-              <optgroup label="Post-Exploitation Prevention">
-                <option value="block-exfiltration" ${csp === 'block-exfiltration' ? 'selected' : ''}>Block Data Exfiltration</option>
-                <option value="allow-self-only" ${csp === 'allow-self-only' ? 'selected' : ''}>Allow Self-Origin Only</option>
-                <option value="block-requests" ${csp === 'block-requests' ? 'selected' : ''}>Block All Requests</option>
-                <option value="block-forms" ${csp === 'block-forms' ? 'selected' : ''}>Block Form Submissions</option>
+              <optgroup label="⚠️ Weak/Vulnerable Policies">
+                <option value="unsafe-inline" ${csp === 'unsafe-inline' ? 'selected' : ''}>Allow unsafe-inline - Permits inline scripts (bypasses XSS protection)</option>
+                <option value="unsafe-eval" ${csp === 'unsafe-eval' ? 'selected' : ''}>Allow unsafe-eval - Permits eval() and new Function() (dangerous)</option>
+              </optgroup>
+              <optgroup label="✅ Strong Script Blocking">
+                <option value="strict" ${csp === 'strict' ? 'selected' : ''}>Strict - Only scripts from same origin (blocks inline XSS)</option>
+                <option value="nonce" ${csp === 'nonce' ? 'selected' : ''}>Nonce-based - Requires unique token per script (best for inline)</option>
+                <option value="strict-dynamic" ${csp === 'strict-dynamic' ? 'selected' : ''}>Strict-Dynamic - Trusts dynamically loaded scripts from trusted sources</option>
+                <option value="no-unsafe" ${csp === 'no-unsafe' ? 'selected' : ''}>No Unsafe - Blocks inline scripts & eval (strong protection)</option>
+                <option value="block-all-scripts" ${csp === 'block-all-scripts' ? 'selected' : ''}>Block All Scripts - script-src 'none' (maximum protection)</option>
+                <option value="block-inline-only" ${csp === 'block-inline-only' ? 'selected' : ''}>Block Inline Only - Allows external scripts, blocks inline</option>
+              </optgroup>
+              <optgroup label="🛡️ Post-Exploitation Mitigation">
+                <option value="block-exfiltration" ${csp === 'block-exfiltration' ? 'selected' : ''}>Block Data Exfiltration - Stops fetch/XHR & form submissions</option>
+                <option value="allow-self-only" ${csp === 'allow-self-only' ? 'selected' : ''}>Allow Self Only - All requests restricted to same origin</option>
+                <option value="block-requests" ${csp === 'block-requests' ? 'selected' : ''}>Block External Requests - connect-src 'none' (stops API calls)</option>
+                <option value="block-forms" ${csp === 'block-forms' ? 'selected' : ''}>Block Forms - Prevents form submission to external sites</option>
+              </optgroup>
+              <optgroup label="🎯 Attack Surface Reduction">
+                <option value="block-plugins" ${csp === 'block-plugins' ? 'selected' : ''}>Block Plugins - Prevents Flash/Java exploits (object-src 'none')</option>
+                <option value="block-framing" ${csp === 'block-framing' ? 'selected' : ''}>Block Framing - Prevents clickjacking (frame-ancestors 'none')</option>
+                <option value="block-base-uri" ${csp === 'block-base-uri' ? 'selected' : ''}>Block Base URI - Prevents base tag injection attacks</option>
+                <option value="upgrade-insecure" ${csp === 'upgrade-insecure' ? 'selected' : ''}>Upgrade Insecure - Forces HTTPS for all resources</option>
+              </optgroup>
+              <optgroup label="🔬 Testing & Extreme">
+                <option value="report-only" ${csp === 'report-only' ? 'selected' : ''}>Report-Only - Logs violations without blocking (for testing)</option>
+                <option value="paranoid" ${csp === 'paranoid' ? 'selected' : ''}>Paranoid Mode - Maximum security, blocks almost everything</option>
               </optgroup>
             </select>
           </div>
@@ -256,6 +306,14 @@ app.get('/reflected', (req, res) => {
             <div class="output-content">
               ${displayInput}
             </div>
+            ${encoding ? `
+              <div style="margin-top: 15px; padding: 15px; background: #e8f5e9; border-radius: 5px; border-left: 4px solid #4caf50;">
+                <strong style="color: #2e7d32;">✅ Output Encoding Active</strong>
+                <p style="margin: 10px 0 5px 0; color: #555;">Raw HTML sent to browser (with entities):</p>
+                <pre style="background: #fff; padding: 10px; border-radius: 3px; overflow-x: auto; font-family: monospace; font-size: 0.9em;"><code>${outputEncode(outputEncode(userInput))}</code></pre>
+                <p style="margin: 5px 0 0 0; color: #555; font-size: 0.9em;">The browser automatically decodes HTML entities for display, so you see the original text above, but the code cannot execute.</p>
+              </div>
+            ` : ''}
           </div>
         ` : ''}
 
@@ -427,7 +485,19 @@ app.get('/stored', (req, res) => {
     }
     
     const comments = rows.map(row => {
-      return encoding ? outputEncode(row.content) : row.content;
+      const displayContent = encoding ? outputEncode(row.content) : row.content;
+      const commentHtml = `
+        <div class="comment" style="margin-bottom: 15px; padding: 15px; background: #f9f9f9; border-radius: 5px; border-left: 3px solid #3f51b5;">
+          <div class="comment-content">${displayContent}</div>
+          ${encoding ? `
+            <div style="margin-top: 10px; padding: 10px; background: #e8f5e9; border-radius: 3px; font-size: 0.85em;">
+              <strong style="color: #2e7d32;">✅ Encoded HTML:</strong>
+              <code style="background: #fff; padding: 2px 6px; border-radius: 2px; font-family: monospace; display: inline-block; margin-left: 5px;">${outputEncode(outputEncode(row.content))}</code>
+            </div>
+          ` : ''}
+        </div>
+      `;
+      return commentHtml;
     }).join('');
     
     res.send(`
@@ -477,18 +547,36 @@ app.get('/stored', (req, res) => {
             <div class="control-group">
               <label for="cspSelect">Content Security Policy:</label>
               <select id="cspSelect">
-                <optgroup label="Script Execution Controls">
-                  <option value="none" ${csp === 'none' ? 'selected' : ''}>None</option>
-                  <option value="strict" ${csp === 'strict' ? 'selected' : ''}>Strict (self only)</option>
-                  <option value="unsafe-inline" ${csp === 'unsafe-inline' ? 'selected' : ''}>Allow unsafe-inline</option>
-                  <option value="nonce" ${csp === 'nonce' ? 'selected' : ''}>Nonce-based</option>
-                  <option value="no-unsafe" ${csp === 'no-unsafe' ? 'selected' : ''}>No unsafe-eval/inline</option>
+                <optgroup label="🚫 No Protection">
+                  <option value="none" ${csp === 'none' ? 'selected' : ''}>None - No CSP (XSS executes freely)</option>
                 </optgroup>
-                <optgroup label="Post-Exploitation Prevention">
-                  <option value="block-exfiltration" ${csp === 'block-exfiltration' ? 'selected' : ''}>Block Data Exfiltration</option>
-                  <option value="allow-self-only" ${csp === 'allow-self-only' ? 'selected' : ''}>Allow Self-Origin Only</option>
-                  <option value="block-requests" ${csp === 'block-requests' ? 'selected' : ''}>Block All Requests</option>
-                  <option value="block-forms" ${csp === 'block-forms' ? 'selected' : ''}>Block Form Submissions</option>
+                <optgroup label="⚠️ Weak/Vulnerable Policies">
+                  <option value="unsafe-inline" ${csp === 'unsafe-inline' ? 'selected' : ''}>Allow unsafe-inline - Permits inline scripts (bypasses XSS protection)</option>
+                  <option value="unsafe-eval" ${csp === 'unsafe-eval' ? 'selected' : ''}>Allow unsafe-eval - Permits eval() and new Function() (dangerous)</option>
+                </optgroup>
+                <optgroup label="✅ Strong Script Blocking">
+                  <option value="strict" ${csp === 'strict' ? 'selected' : ''}>Strict - Only scripts from same origin (blocks inline XSS)</option>
+                  <option value="nonce" ${csp === 'nonce' ? 'selected' : ''}>Nonce-based - Requires unique token per script (best for inline)</option>
+                  <option value="strict-dynamic" ${csp === 'strict-dynamic' ? 'selected' : ''}>Strict-Dynamic - Trusts dynamically loaded scripts from trusted sources</option>
+                  <option value="no-unsafe" ${csp === 'no-unsafe' ? 'selected' : ''}>No Unsafe - Blocks inline scripts & eval (strong protection)</option>
+                  <option value="block-all-scripts" ${csp === 'block-all-scripts' ? 'selected' : ''}>Block All Scripts - script-src 'none' (maximum protection)</option>
+                  <option value="block-inline-only" ${csp === 'block-inline-only' ? 'selected' : ''}>Block Inline Only - Allows external scripts, blocks inline</option>
+                </optgroup>
+                <optgroup label="🛡️ Post-Exploitation Mitigation">
+                  <option value="block-exfiltration" ${csp === 'block-exfiltration' ? 'selected' : ''}>Block Data Exfiltration - Stops fetch/XHR & form submissions</option>
+                  <option value="allow-self-only" ${csp === 'allow-self-only' ? 'selected' : ''}>Allow Self Only - All requests restricted to same origin</option>
+                  <option value="block-requests" ${csp === 'block-requests' ? 'selected' : ''}>Block External Requests - connect-src 'none' (stops API calls)</option>
+                  <option value="block-forms" ${csp === 'block-forms' ? 'selected' : ''}>Block Forms - Prevents form submission to external sites</option>
+                </optgroup>
+                <optgroup label="🎯 Attack Surface Reduction">
+                  <option value="block-plugins" ${csp === 'block-plugins' ? 'selected' : ''}>Block Plugins - Prevents Flash/Java exploits (object-src 'none')</option>
+                  <option value="block-framing" ${csp === 'block-framing' ? 'selected' : ''}>Block Framing - Prevents clickjacking (frame-ancestors 'none')</option>
+                  <option value="block-base-uri" ${csp === 'block-base-uri' ? 'selected' : ''}>Block Base URI - Prevents base tag injection attacks</option>
+                  <option value="upgrade-insecure" ${csp === 'upgrade-insecure' ? 'selected' : ''}>Upgrade Insecure - Forces HTTPS for all resources</option>
+                </optgroup>
+                <optgroup label="🔬 Testing & Extreme">
+                  <option value="report-only" ${csp === 'report-only' ? 'selected' : ''}>Report-Only - Logs violations without blocking (for testing)</option>
+                  <option value="paranoid" ${csp === 'paranoid' ? 'selected' : ''}>Paranoid Mode - Maximum security, blocks almost everything</option>
                 </optgroup>
               </select>
             </div>
@@ -508,8 +596,17 @@ app.get('/stored', (req, res) => {
           <div class="output-box">
             <h3>Comments:</h3>
             <div id="comments" class="comments-list">
-              ${comments || '<p>No comments yet. Be the first to comment!</p>'}
+              ${comments || '<p style="padding: 20px; text-align: center; color: #777;">No comments yet. Be the first to comment!</p>'}
             </div>
+            ${encoding && comments ? `
+              <div style="margin-top: 15px; padding: 15px; background: #e3f2fd; border-radius: 5px; border-left: 4px solid #2196f3;">
+                <strong style="color: #1565c0;">ℹ️ About Output Encoding</strong>
+                <p style="margin: 10px 0 0 0; color: #555; font-size: 0.9em;">
+                  Output encoding converts dangerous characters like <code>&lt;</code> to HTML entities like <code>&amp;lt;</code>. 
+                  This prevents the browser from interpreting malicious code as executable HTML/JavaScript.
+                </p>
+              </div>
+            ` : ''}
           </div>
 
           <div class="example-box">

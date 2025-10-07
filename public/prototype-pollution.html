@@ -77,16 +77,36 @@
       <div class="control-group">
         <label for="csp">Content Security Policy:</label>
         <select id="csp">
-          <optgroup label="Script Execution Controls">
-            <option value="none">None</option>
-            <option value="strict">Strict (self only)</option>
-            <option value="unsafe-inline">Allow unsafe-inline</option>
+          <optgroup label="🚫 No Protection">
+            <option value="none">None - No CSP (XSS executes freely)</option>
           </optgroup>
-          <optgroup label="Post-Exploitation Prevention">
-            <option value="block-exfiltration">Block Data Exfiltration</option>
-            <option value="allow-self-only">Allow Self-Origin Only</option>
-            <option value="block-requests">Block All Requests</option>
-            <option value="block-forms">Block Form Submissions</option>
+          <optgroup label="⚠️ Weak/Vulnerable Policies">
+            <option value="unsafe-inline">Allow unsafe-inline - Permits inline scripts (bypasses XSS protection)</option>
+            <option value="unsafe-eval">Allow unsafe-eval - Permits eval() and new Function() (dangerous)</option>
+          </optgroup>
+          <optgroup label="✅ Strong Script Blocking">
+            <option value="strict">Strict - Only scripts from same origin (blocks inline XSS)</option>
+            <option value="nonce">Nonce-based - Requires unique token per script (best for inline)</option>
+            <option value="strict-dynamic">Strict-Dynamic - Trusts dynamically loaded scripts from trusted sources</option>
+            <option value="no-unsafe">No Unsafe - Blocks inline scripts & eval (strong protection)</option>
+            <option value="block-all-scripts">Block All Scripts - script-src 'none' (maximum protection)</option>
+            <option value="block-inline-only">Block Inline Only - Allows external scripts, blocks inline</option>
+          </optgroup>
+          <optgroup label="🛡️ Post-Exploitation Mitigation">
+            <option value="block-exfiltration">Block Data Exfiltration - Stops fetch/XHR & form submissions</option>
+            <option value="allow-self-only">Allow Self Only - All requests restricted to same origin</option>
+            <option value="block-requests">Block External Requests - connect-src 'none' (stops API calls)</option>
+            <option value="block-forms">Block Forms - Prevents form submission to external sites</option>
+          </optgroup>
+          <optgroup label="🎯 Attack Surface Reduction">
+            <option value="block-plugins">Block Plugins - Prevents Flash/Java exploits (object-src 'none')</option>
+            <option value="block-framing">Block Framing - Prevents clickjacking (frame-ancestors 'none')</option>
+            <option value="block-base-uri">Block Base URI - Prevents base tag injection attacks</option>
+            <option value="upgrade-insecure">Upgrade Insecure - Forces HTTPS for all resources</option>
+          </optgroup>
+          <optgroup label="🔬 Testing & Extreme">
+            <option value="report-only">Report-Only - Logs violations without blocking (for testing)</option>
+            <option value="paranoid">Paranoid Mode - Maximum security, blocks almost everything</option>
           </optgroup>
         </select>
       </div>
