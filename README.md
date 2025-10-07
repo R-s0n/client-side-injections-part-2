@@ -219,7 +219,8 @@ python xss_target_finder.py --reflected-stored
 
 The tool generates:
 - `programs_*.json` - Complete program data
-- `xss_targets_*.txt` - Scored targets (e.g., `https://example.com -- 85`)
+- `xss_targets_*.txt` - Scored targets with program links
+  - Format: `https://example.com -- 85 -- https://hackerone.com/program`
 
 ### Tips
 

@@ -170,8 +170,9 @@ The tool generates two types of output files:
    - Contains all fetched program data and scope information
 
 2. **Target Results**: `xss_targets_{type}_YYYYMMDD_HHMMSS.txt`
-   - Lists discovered targets with scores
-   - Format: `https://example.com -- 85`
+   - Lists discovered targets with scores and program links
+   - Format: `https://example.com -- 85 -- https://hackerone.com/program-name`
+   - Each line contains: target URL, score (0-100), and link to the bug bounty program
 
 ## Target Selection Criteria
 

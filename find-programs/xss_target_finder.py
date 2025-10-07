@@ -580,7 +580,7 @@ class TargetFinder:
             
         return max(0, min(100, score))
         
-    def test_target(self, url: str) -> Optional[Dict]:
+    def test_target(self, url: str, program: Optional[Dict] = None) -> Optional[Dict]:
         if url.startswith('https://https://') or url.startswith('http://http://'):
             if self.verbose:
                 logger.warning(f"Skipping malformed URL: {url}")
@@ -612,11 +612,19 @@ class TargetFinder:
             if self.verbose:
                 logger.info(f"  Score: {score}/100")
             
+            program_url = ''
+            if program:
+                if program['platform'] == 'hackerone':
+                    program_url = f"https://hackerone.com/{program['handle']}"
+                elif program['platform'] == 'bugcrowd':
+                    program_url = f"https://bugcrowd.com/{program['code']}"
+            
             return {
                 'url': url,
                 'score': score,
                 'tech_info': tech_info,
-                'reason': reason
+                'reason': reason,
+                'program_url': program_url
             }
             
         except Exception as e:
@@ -775,14 +783,14 @@ class TargetFinder:
                                     program_targets_tested += 1
                                     
                                     try:
-                                        result = self.test_target(url)
+                                        result = self.test_target(url, program)
                                         
                                         if result:
                                             targets_found += 1
                                             program_targets_found += 1
                                             with open(results_file, 'a') as f:
-                                                f.write(f"{result['url']} -- {result['score']}\n")
-                                            logger.info(f"✓ TARGET FOUND ({targets_found}): {result['url']} -- {result['score']}")
+                                                f.write(f"{result['url']} -- {result['score']} -- {result['program_url']}\n")
+                                            logger.info(f"✓ TARGET FOUND ({targets_found}): {result['url']} -- {result['score']} -- {result['program_url']}")
                                             if self.verbose:
                                                 logger.info(f"  Reason: {result['reason']}")
                                             
