@@ -208,8 +208,9 @@ class TargetFinder:
         
     def extract_targets(self, program: Dict) -> List[str]:
         targets = []
+        platform = program.get('platform', 'unknown')
         
-        if program['platform'] == 'hackerone':
+        if platform == 'hackerone':
             try:
                 relationships = program['data'].get('data', {}).get('relationships', {})
                 structured_scopes = relationships.get('structured_scopes', {}).get('data', [])
@@ -233,8 +234,11 @@ class TargetFinder:
                             targets.append(asset_identifier)
             except Exception as e:
                 logger.warning(f"Error extracting HackerOne targets: {e}")
+                if self.verbose:
+                    import traceback
+                    logger.error(traceback.format_exc())
                 
-        elif program['platform'] == 'bugcrowd':
+        elif platform == 'bugcrowd':
             try:
                 for target in program['data'].get('targets', []):
                     target_name = target.get('name', '')
@@ -251,6 +255,9 @@ class TargetFinder:
                             targets.append(f"https://{clean_domain}")
             except Exception as e:
                 logger.warning(f"Error extracting BugCrowd targets: {e}")
+                if self.verbose:
+                    import traceback
+                    logger.error(traceback.format_exc())
                 
         return targets
         
@@ -616,27 +623,48 @@ class TargetFinder:
                     try:
                         targets = self.extract_targets(program)
                         
+                        if self.verbose:
+                            logger.info(f"  Extracted {len(targets)} target(s) from {program['name']}")
+                            for t in targets[:5]:
+                                logger.info(f"    - {t}")
+                            if len(targets) > 5:
+                                logger.info(f"    ... and {len(targets) - 5} more")
+                        
+                        if not targets:
+                            if self.verbose:
+                                logger.info(f"  No targets found for {program['name']}, skipping")
+                            continue
+                        
+                        program_targets_tested = 0
+                        program_targets_found = 0
+                        
                         for target in targets:
                             try:
                                 urls_to_test = []
                                 
                                 if '*' in target and self.use_subdomains:
+                                    if self.verbose:
+                                        logger.info(f"  Enumerating subdomains for wildcard: {target}")
                                     urls_to_test = self.enumerate_subdomains(target)
                                 else:
                                     urls_to_test = [target]
                                     
                                 for url in urls_to_test:
                                     if url in tested_urls:
+                                        if self.verbose:
+                                            logger.info(f"  Skipping already tested: {url}")
                                         continue
                                         
                                     tested_urls.add(url)
                                     targets_tested += 1
+                                    program_targets_tested += 1
                                     
                                     try:
                                         result = self.test_target(url)
                                         
                                         if result:
                                             targets_found += 1
+                                            program_targets_found += 1
                                             with open(results_file, 'a') as f:
                                                 f.write(f"{result['url']} -- {result['score']}\n")
                                             logger.info(f"✓ TARGET FOUND ({targets_found}): {result['url']} -- {result['score']}")
@@ -658,6 +686,9 @@ class TargetFinder:
                                 
                     except Exception as e:
                         logger.warning(f"Error extracting targets from {program['name']}: {e}")
+                    
+                    if self.verbose and 'program_targets_tested' in locals():
+                        logger.info(f"  Program summary: Tested {program_targets_tested} URL(s), found {program_targets_found} good target(s)")
                         
                     time.sleep(5)
                     

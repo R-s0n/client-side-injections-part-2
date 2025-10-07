@@ -148,11 +148,19 @@ python xss_target_finder.py --dom-based -v
 ```
 
 Verbose mode shows:
-- Detected frameworks and technologies
-- Number of JavaScript files
-- Security controls (CSP, WAF, authentication)
-- Detailed reason for acceptance/rejection
-- Individual target scores
+- **Per Program:**
+  - Number of targets extracted from each program
+  - List of first 5 targets (to avoid spam)
+  - Summary of URLs tested and targets found per program
+- **Per Target:**
+  - Detected frameworks and technologies
+  - Number of JavaScript files
+  - Security controls (CSP, WAF, authentication)
+  - Detailed reason for acceptance/rejection
+  - Individual target scores
+  - Which URLs are being skipped (already tested)
+- **Error Details:**
+  - Full stack traces for debugging issues
 
 ## Output
 
