@@ -219,7 +219,9 @@ Targets are scored from 0-100 based on:
 
 ## Notes
 
-- The tool uses a headless Chrome browser for JavaScript analysis
+- The tool uses a headless Chrome browser for JavaScript analysis (optional but recommended)
+  - If ChromeDriver fails to initialize, the tool continues without browser-based checks
+  - Webpack exposure detection requires a working browser setup
 - Random delays are included to avoid rate limiting
 - Results are appended to the output file as they're discovered
 - Press Ctrl+C to stop the tool gracefully
@@ -227,4 +229,30 @@ Targets are scored from 0-100 based on:
 - Program data can be reused to save time and avoid unnecessary API calls
 - Each run creates a new results file with a unique timestamp
 - **The tool automatically prevents your system from going to sleep while running** - sleep mode is restored when you stop the tool
+
+## Troubleshooting
+
+### ChromeDriver Version Mismatch
+
+If you see errors like:
+```
+This version of ChromeDriver only supports Chrome version 114
+Current browser version is 139.0.7258.66
+```
+
+The tool will continue working without browser-based checks. To fix this for full functionality:
+
+**Option 1: Update ChromeDriver cache**
+```bash
+rm -rf ~/.wdm/drivers/chromedriver
+```
+Then run the tool again - it will download the correct version.
+
+**Option 2: Install matching Chrome/Chromium**
+```bash
+sudo apt update
+sudo apt install chromium-browser
+```
+
+The tool works fine without browser checks, but webpack exposure detection will be skipped.
 

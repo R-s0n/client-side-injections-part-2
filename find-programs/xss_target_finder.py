@@ -65,8 +65,14 @@ class TargetFinder:
                 options=chrome_options
             )
             self.driver.set_page_load_timeout(30)
+            if self.verbose:
+                logger.info("Browser initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize browser: {e}")
+            if self.verbose:
+                logger.error(f"Failed to initialize browser: {e}")
+                logger.warning("Continuing without browser-based checks (webpack detection will be skipped)")
+            else:
+                logger.warning(f"Browser initialization failed, continuing without browser-based checks")
             
     def close_browser(self):
         if self.driver:
@@ -231,6 +237,8 @@ class TargetFinder:
                                 clean_domain = asset_identifier.replace('*.', '')
                                 targets.append(f"https://{clean_domain}")
                         else:
+                            if not asset_identifier.startswith('http'):
+                                asset_identifier = f"https://{asset_identifier}"
                             targets.append(asset_identifier)
             except Exception as e:
                 logger.warning(f"Error extracting HackerOne targets: {e}")
