@@ -33,6 +33,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+logging.getLogger('WDM').setLevel(logging.ERROR)
+logging.getLogger('selenium').setLevel(logging.ERROR)
+logging.getLogger('urllib3').setLevel(logging.ERROR)
+
 
 class TargetFinder:
     def __init__(self, hackerone_key: Optional[str], bugcrowd_key: Optional[str], 
@@ -48,6 +52,57 @@ class TargetFinder:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         })
         
+    def download_matching_chromedriver(self, chrome_version):
+        import subprocess
+        import zipfile
+        from pathlib import Path
+        
+        driver_dir = Path.home() / '.chromedriver' / f'v{chrome_version}'
+        driver_path = driver_dir / 'chromedriver'
+        
+        if driver_path.exists():
+            logger.info(f"Using cached ChromeDriver for version {chrome_version}")
+            return str(driver_path)
+        
+        driver_dir.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"Downloading ChromeDriver for Chrome/Chromium {chrome_version}...")
+        
+        try:
+            response = requests.get(
+                f'https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE_{chrome_version}',
+                timeout=10
+            )
+            driver_version = response.text.strip()
+            
+            download_url = f'https://storage.googleapis.com/chrome-for-testing-public/{driver_version}/linux64/chromedriver-linux64.zip'
+            
+            zip_path = driver_dir / 'chromedriver.zip'
+            response = requests.get(download_url, timeout=60)
+            
+            if response.status_code == 200:
+                with open(zip_path, 'wb') as f:
+                    f.write(response.content)
+                
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    zip_ref.extractall(driver_dir)
+                
+                extracted_driver = driver_dir / 'chromedriver-linux64' / 'chromedriver'
+                if extracted_driver.exists():
+                    extracted_driver.rename(driver_path)
+                    driver_path.chmod(0o755)
+                    
+                    import shutil
+                    shutil.rmtree(driver_dir / 'chromedriver-linux64', ignore_errors=True)
+                    zip_path.unlink(missing_ok=True)
+                    
+                    logger.info(f"✓ ChromeDriver {driver_version} installed successfully")
+                    return str(driver_path)
+        except Exception as e:
+            logger.warning(f"Failed to download matching ChromeDriver: {e}")
+            
+        return None
+    
     def init_browser(self):
         if self.driver:
             return
@@ -58,21 +113,56 @@ class TargetFinder:
         chrome_options.add_argument('--disable-gpu')
         chrome_options.add_argument('--disable-blink-features=AutomationControlled')
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_argument('--log-level=3')
         
         try:
-            self.driver = webdriver.Chrome(
-                service=Service(ChromeDriverManager().install()),
-                options=chrome_options
-            )
-            self.driver.set_page_load_timeout(30)
-            if self.verbose:
-                logger.info("Browser initialized successfully")
-        except Exception as e:
-            if self.verbose:
-                logger.error(f"Failed to initialize browser: {e}")
-                logger.warning("Continuing without browser-based checks (webpack detection will be skipped)")
+            import os
+            import subprocess
+            
+            os.environ['WDM_LOG'] = '0'
+            os.environ['WDM_LOG_LEVEL'] = '0'
+            
+            chrome_version = None
+            try:
+                chrome_version_output = subprocess.check_output(
+                    ['chromium', '--version'], 
+                    stderr=subprocess.DEVNULL
+                ).decode('utf-8').strip()
+                chrome_version = chrome_version_output.split()[1].split('.')[0]
+                logger.info(f"Detected Chromium version: {chrome_version}")
+            except:
+                try:
+                    chrome_version_output = subprocess.check_output(
+                        ['google-chrome', '--version'],
+                        stderr=subprocess.DEVNULL
+                    ).decode('utf-8').strip()
+                    chrome_version = chrome_version_output.split()[2].split('.')[0]
+                    logger.info(f"Detected Chrome version: {chrome_version}")
+                except:
+                    logger.warning("Could not detect Chrome/Chromium version")
+            
+            driver_path = None
+            if chrome_version and int(chrome_version) >= 115:
+                driver_path = self.download_matching_chromedriver(chrome_version)
+            
+            if driver_path:
+                self.driver = webdriver.Chrome(
+                    service=Service(driver_path),
+                    options=chrome_options
+                )
             else:
-                logger.warning(f"Browser initialization failed, continuing without browser-based checks")
+                self.driver = webdriver.Chrome(
+                    service=Service(ChromeDriverManager().install()),
+                    options=chrome_options
+                )
+            
+            self.driver.set_page_load_timeout(30)
+            logger.info("✓ Browser initialized successfully - webpack detection enabled")
+            
+        except Exception as e:
+            logger.warning(f"Failed to initialize browser: {str(e)[:100]}")
+            logger.warning("Continuing without browser-based checks (webpack detection will be skipped)")
+            self.driver = None
             
     def close_browser(self):
         if self.driver:

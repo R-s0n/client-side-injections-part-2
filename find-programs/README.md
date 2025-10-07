@@ -232,27 +232,22 @@ Targets are scored from 0-100 based on:
 
 ## Troubleshooting
 
-### ChromeDriver Version Mismatch
+### ChromeDriver - Now Automatic! 🎉
 
-If you see errors like:
-```
-This version of ChromeDriver only supports Chrome version 114
-Current browser version is 139.0.7258.66
-```
+The tool now **automatically downloads the correct ChromeDriver** version for your Chrome/Chromium browser!
 
-The tool will continue working without browser-based checks. To fix this for full functionality:
+- Detects your Chrome/Chromium version
+- Downloads the matching ChromeDriver from official sources
+- Caches it in `~/.chromedriver/vXXX/` for reuse
+- Works with any version (115+), including the latest Chromium 139
 
-**Option 1: Update ChromeDriver cache**
+**Just run the tool** and it will handle everything automatically on first run.
+
+If you have issues:
 ```bash
+rm -rf ~/.chromedriver/
 rm -rf ~/.wdm/drivers/chromedriver
 ```
-Then run the tool again - it will download the correct version.
 
-**Option 2: Install matching Chrome/Chromium**
-```bash
-sudo apt update
-sudo apt install chromium-browser
-```
-
-The tool works fine without browser checks, but webpack exposure detection will be skipped.
+Then restart the tool - it will download fresh drivers.
 
