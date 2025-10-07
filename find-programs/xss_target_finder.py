@@ -325,9 +325,12 @@ class TargetFinder:
                                 targets.append(asset_identifier)
                             else:
                                 clean_domain = asset_identifier.replace('*.', '')
-                                targets.append(f"https://{clean_domain}")
+                                if not clean_domain.startswith('http'):
+                                    targets.append(f"https://{clean_domain}")
+                                else:
+                                    targets.append(clean_domain)
                         else:
-                            if not asset_identifier.startswith('http'):
+                            if not asset_identifier.startswith(('http://', 'https://')):
                                 asset_identifier = f"https://{asset_identifier}"
                             targets.append(asset_identifier)
             except Exception as e:
@@ -447,8 +450,12 @@ class TargetFinder:
             if len(script_tags) > 3:
                 tech_info['custom_js'] = True
                 
+        except requests.exceptions.ConnectionError as e:
+            if self.verbose:
+                logger.warning(f"Connection error for {url}: DNS resolution failed or host unreachable")
         except Exception as e:
-            logger.warning(f"Error in basic tech detection for {url}: {e}")
+            if self.verbose:
+                logger.warning(f"Error in basic tech detection for {url}: {e}")
             
         try:
             self.init_browser()
@@ -482,7 +489,12 @@ class TargetFinder:
                         tech_info['webpack_exposed'] = True
                         
         except Exception as e:
-            logger.warning(f"Error in browser-based detection for {url}: {e}")
+            error_str = str(e)
+            if 'ERR_NAME_NOT_RESOLVED' in error_str or 'ERR_CONNECTION_REFUSED' in error_str:
+                if self.verbose:
+                    logger.warning(f"Browser error for {url}: Domain not accessible")
+            elif self.verbose:
+                logger.warning(f"Error in browser-based detection for {url}: {error_str[:100]}")
             
         return tech_info
         
@@ -569,6 +581,11 @@ class TargetFinder:
         return max(0, min(100, score))
         
     def test_target(self, url: str) -> Optional[Dict]:
+        if url.startswith('https://https://') or url.startswith('http://http://'):
+            if self.verbose:
+                logger.warning(f"Skipping malformed URL: {url}")
+            return None
+        
         if self.verbose:
             logger.info(f"Testing target: {url}")
         
