@@ -12,6 +12,7 @@ from urllib.parse import urlparse, urljoin
 import logging
 from typing import List, Dict, Optional, Set
 import re
+import glob
 
 try:
     from selenium import webdriver
@@ -21,6 +22,7 @@ try:
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
     from webdriver_manager.chrome import ChromeDriverManager
+    from wakepy import keep
 except ImportError:
     print("Error: Required packages not installed. Please run: pip install -r requirements.txt")
     sys.exit(1)
@@ -34,11 +36,12 @@ logger = logging.getLogger(__name__)
 
 class TargetFinder:
     def __init__(self, hackerone_key: Optional[str], bugcrowd_key: Optional[str], 
-                 injection_type: str, use_subdomains: bool):
+                 injection_type: str, use_subdomains: bool, verbose: bool = False):
         self.hackerone_key = hackerone_key
         self.bugcrowd_key = bugcrowd_key
         self.injection_type = injection_type
         self.use_subdomains = use_subdomains
+        self.verbose = verbose
         self.driver = None
         self.session = requests.Session()
         self.session.headers.update({
@@ -99,7 +102,8 @@ class TargetFinder:
                 
                 if response.status_code != 200:
                     logger.error(f"HackerOne API error: {response.status_code}")
-                    logger.error(f"Response: {response.text[:500]}")
+                    if self.verbose:
+                        logger.error(f"Response: {response.text[:500]}")
                     logger.error(f"Make sure your API key format is: identifier:token")
                     break
                     
@@ -140,6 +144,10 @@ class TargetFinder:
                     
             except Exception as e:
                 logger.error(f"Error fetching HackerOne programs: {e}")
+                if self.verbose:
+                    import traceback
+                    logger.error(traceback.format_exc())
+                time.sleep(5)
                 break
                 
         logger.info(f"Found {len(programs)} HackerOne programs")
@@ -294,7 +302,7 @@ class TargetFinder:
         }
         
         try:
-            response = self.session.get(url, timeout=15, allow_redirects=True)
+            response = self.session.get(url, timeout=15, allow_redirects=True, verify=True)
             tech_info['response_headers'] = dict(response.headers)
             
             if 'Content-Security-Policy' in response.headers:
@@ -373,28 +381,49 @@ class TargetFinder:
             
         return tech_info
         
-    def is_good_target(self, tech_info: Dict) -> bool:
+    def is_good_target(self, tech_info: Dict, url: str) -> tuple[bool, str]:
         if self.injection_type == 'reflected-stored':
             virtual_dom_frameworks = ['react', 'vue', 'angular', 'svelte']
-            if any(fw in tech_info['frameworks'] for fw in virtual_dom_frameworks):
-                return False
-            return True
+            detected_frameworks = [fw for fw in virtual_dom_frameworks if fw in tech_info['frameworks']]
+            
+            if detected_frameworks:
+                reason = f"Has virtual DOM framework(s): {', '.join(detected_frameworks)}"
+                if self.verbose:
+                    logger.info(f"❌ {url} - {reason}")
+                return False, reason
+            
+            reason = "No virtual DOM frameworks detected - good for reflected/stored XSS"
+            if self.verbose:
+                logger.info(f"✓ {url} - {reason}")
+            return True, reason
             
         elif self.injection_type == 'dom-based':
             if not tech_info['custom_js']:
-                return False
+                reason = "Insufficient custom JavaScript"
+                if self.verbose:
+                    logger.info(f"❌ {url} - {reason}")
+                return False, reason
                 
             virtual_dom_frameworks = ['react', 'vue', 'angular']
             has_framework = any(fw in tech_info['frameworks'] for fw in virtual_dom_frameworks)
             
             if has_framework and tech_info['webpack_exposed']:
-                return True
+                reason = "Framework with exposed webpack - good for DOM-based XSS"
+                if self.verbose:
+                    logger.info(f"✓ {url} - {reason}")
+                return True, reason
             elif has_framework and not tech_info['webpack_exposed']:
-                return False
+                reason = "Framework detected but webpack not exposed"
+                if self.verbose:
+                    logger.info(f"❌ {url} - {reason}")
+                return False, reason
             elif not has_framework and tech_info['custom_js']:
-                return True
+                reason = "Custom JavaScript without framework - good for DOM-based XSS"
+                if self.verbose:
+                    logger.info(f"✓ {url} - {reason}")
+                return True, reason
                 
-        return False
+        return False, "Does not meet criteria"
         
     def calculate_score(self, tech_info: Dict) -> int:
         score = 50
@@ -435,95 +464,206 @@ class TargetFinder:
         return max(0, min(100, score))
         
     def test_target(self, url: str) -> Optional[Dict]:
-        logger.info(f"Testing target: {url}")
+        if self.verbose:
+            logger.info(f"Testing target: {url}")
         
         try:
             tech_info = self.detect_technology_stack(url)
             
-            if not self.is_good_target(tech_info):
-                logger.info(f"Target {url} does not match criteria for {self.injection_type}")
+            if self.verbose:
+                logger.info(f"  Frameworks detected: {tech_info['frameworks'] or 'None'}")
+                logger.info(f"  Custom JS: {tech_info['custom_js']}")
+                logger.info(f"  JS files: {len(tech_info['js_files'])}")
+                logger.info(f"  CSP: {tech_info['has_csp']}")
+                logger.info(f"  WAF: {tech_info['has_waf']}")
+                logger.info(f"  Auth: {tech_info['has_auth']}")
+            
+            is_good, reason = self.is_good_target(tech_info, url)
+            
+            if not is_good:
+                if not self.verbose:
+                    logger.info(f"⊗ {url} - {reason}")
                 return None
-                
+            
             score = self.calculate_score(tech_info)
+            
+            if self.verbose:
+                logger.info(f"  Score: {score}/100")
             
             return {
                 'url': url,
                 'score': score,
-                'tech_info': tech_info
+                'tech_info': tech_info,
+                'reason': reason
             }
             
         except Exception as e:
             logger.error(f"Error testing target {url}: {e}")
+            if self.verbose:
+                import traceback
+                logger.error(traceback.format_exc())
             return None
             
+    def load_existing_programs(self) -> Optional[tuple[List[Dict], str]]:
+        program_files = sorted(glob.glob("programs_*.json"), reverse=True)
+        
+        if not program_files:
+            return None
+            
+        latest_file = program_files[0]
+        
+        try:
+            timestamp_str = latest_file.replace("programs_", "").replace(".json", "")
+            file_datetime = datetime.strptime(timestamp_str, "%Y%m%d_%H%M%S")
+            
+            print(f"\nFound existing program data:")
+            print(f"  File: {latest_file}")
+            print(f"  Collected: {file_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            with open(latest_file, 'r') as f:
+                programs = json.load(f)
+            
+            print(f"  Programs: {len(programs)}")
+            
+            while True:
+                response = input("\nUse this data? (y/n): ").strip().lower()
+                if response in ['y', 'yes']:
+                    logger.info(f"Using existing program data from {latest_file}")
+                    return programs, latest_file
+                elif response in ['n', 'no']:
+                    logger.info("Will fetch fresh program data")
+                    return None
+                else:
+                    print("Please enter 'y' or 'n'")
+                    
+        except Exception as e:
+            logger.warning(f"Error reading existing program file: {e}")
+            return None
+    
     def run(self, use_hackerone: bool, use_bugcrowd: bool):
         programs = []
-        
-        if use_hackerone and self.hackerone_key:
-            programs.extend(self.fetch_hackerone_programs())
-            
-        if use_bugcrowd and self.bugcrowd_key:
-            programs.extend(self.fetch_bugcrowd_programs())
-            
-        if not programs:
-            logger.error("No programs found. Check API keys and connectivity.")
-            return
-            
+        programs_file = None
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        programs_file = f"programs_{timestamp}.json"
         
-        with open(programs_file, 'w') as f:
-            json.dump(programs, f, indent=2)
-        logger.info(f"Saved {len(programs)} programs to {programs_file}")
+        existing_data = self.load_existing_programs()
+        
+        if existing_data:
+            programs, programs_file = existing_data
+        else:
+            if use_hackerone and self.hackerone_key:
+                programs.extend(self.fetch_hackerone_programs())
+                
+            if use_bugcrowd and self.bugcrowd_key:
+                programs.extend(self.fetch_bugcrowd_programs())
+                
+            if not programs:
+                logger.error("No programs found. Check API keys and connectivity.")
+                return
+                
+            programs_file = f"programs_{timestamp}.json"
+            
+            with open(programs_file, 'w') as f:
+                json.dump(programs, f, indent=2)
+            logger.info(f"Saved {len(programs)} programs to {programs_file}")
         
         results_file = f"xss_targets_{self.injection_type}_{timestamp}.txt"
         
         logger.info("Starting continuous target testing...")
+        logger.info(f"Injection type: {self.injection_type}")
+        logger.info(f"Verbose mode: {self.verbose}")
+        logger.info("Preventing system sleep mode...")
         tested_urls = set()
+        targets_found = 0
+        targets_tested = 0
         
         try:
-            while True:
-                if not programs:
-                    logger.info("All programs tested, reloading...")
-                    programs = []
-                    if use_hackerone and self.hackerone_key:
-                        programs.extend(self.fetch_hackerone_programs())
-                    if use_bugcrowd and self.bugcrowd_key:
-                        programs.extend(self.fetch_bugcrowd_programs())
-                    tested_urls.clear()
-                    
-                program = random.choice(programs)
-                programs.remove(program)
-                
-                logger.info(f"Testing program: {program['name']}")
-                targets = self.extract_targets(program)
-                
-                for target in targets:
-                    urls_to_test = []
-                    
-                    if '*' in target and self.use_subdomains:
-                        urls_to_test = self.enumerate_subdomains(target)
-                    else:
-                        urls_to_test = [target]
+            with keep.running():
+                while True:
+                    if not programs:
+                        logger.info("All programs tested, reloading...")
                         
-                    for url in urls_to_test:
-                        if url in tested_urls:
+                        max_retries = 3
+                        for retry in range(max_retries):
+                            programs = []
+                            try:
+                                if use_hackerone and self.hackerone_key:
+                                    programs.extend(self.fetch_hackerone_programs())
+                                if use_bugcrowd and self.bugcrowd_key:
+                                    programs.extend(self.fetch_bugcrowd_programs())
+                                
+                                if programs:
+                                    break
+                                else:
+                                    logger.warning(f"No programs fetched, retry {retry + 1}/{max_retries}")
+                                    time.sleep(10 * (retry + 1))
+                            except Exception as e:
+                                logger.error(f"Error fetching programs (retry {retry + 1}/{max_retries}): {e}")
+                                time.sleep(10 * (retry + 1))
+                        
+                        if not programs:
+                            logger.error("Failed to fetch programs after retries. Waiting 60s before trying again...")
+                            time.sleep(60)
                             continue
-                            
-                        tested_urls.add(url)
-                        result = self.test_target(url)
                         
-                        if result:
-                            with open(results_file, 'a') as f:
-                                f.write(f"{result['url']} -- {result['score']}\n")
-                            logger.info(f"✓ Added target: {result['url']} -- {result['score']}")
-                            
-                        time.sleep(random.uniform(2, 5))
+                        tested_urls.clear()
+                        logger.info(f"Reloaded {len(programs)} programs. Stats: {targets_found} targets found from {targets_tested} tested")
                         
-                time.sleep(5)
-                
+                    program = random.choice(programs)
+                    programs.remove(program)
+                    
+                    logger.info(f"Testing program: {program['name']}")
+                    
+                    try:
+                        targets = self.extract_targets(program)
+                        
+                        for target in targets:
+                            try:
+                                urls_to_test = []
+                                
+                                if '*' in target and self.use_subdomains:
+                                    urls_to_test = self.enumerate_subdomains(target)
+                                else:
+                                    urls_to_test = [target]
+                                    
+                                for url in urls_to_test:
+                                    if url in tested_urls:
+                                        continue
+                                        
+                                    tested_urls.add(url)
+                                    targets_tested += 1
+                                    
+                                    try:
+                                        result = self.test_target(url)
+                                        
+                                        if result:
+                                            targets_found += 1
+                                            with open(results_file, 'a') as f:
+                                                f.write(f"{result['url']} -- {result['score']}\n")
+                                            logger.info(f"✓ TARGET FOUND ({targets_found}): {result['url']} -- {result['score']}")
+                                            if self.verbose:
+                                                logger.info(f"  Reason: {result['reason']}")
+                                            
+                                    except Exception as e:
+                                        logger.warning(f"Error testing {url}: {e}")
+                                        if self.verbose:
+                                            import traceback
+                                            logger.error(traceback.format_exc())
+                                        continue
+                                        
+                                    time.sleep(random.uniform(2, 5))
+                                    
+                            except Exception as e:
+                                logger.warning(f"Error processing target {target}: {e}")
+                                continue
+                                
+                    except Exception as e:
+                        logger.warning(f"Error extracting targets from {program['name']}: {e}")
+                        
+                    time.sleep(5)
+                    
         except KeyboardInterrupt:
             logger.info("\nStopping target finder...")
+            logger.info("System sleep mode will be re-enabled")
         finally:
             self.close_browser()
 
@@ -562,6 +702,12 @@ def main():
         '--subdomains',
         action='store_true',
         help='Enumerate subdomains from certificate transparency logs for wildcards'
+    )
+    
+    parser.add_argument(
+        '--verbose', '-v',
+        action='store_true',
+        help='Enable verbose output showing detailed analysis of each target'
     )
     
     args = parser.parse_args()
@@ -603,7 +749,8 @@ def main():
         hackerone_key=hackerone_key,
         bugcrowd_key=bugcrowd_key,
         injection_type=injection_type,
-        use_subdomains=args.subdomains
+        use_subdomains=args.subdomains,
+        verbose=args.verbose
     )
     
     finder.run(use_hackerone=use_hackerone, use_bugcrowd=use_bugcrowd)

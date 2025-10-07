@@ -88,6 +88,24 @@ At least one API key must be set for the tool to work.
 source venv/bin/activate
 ```
 
+### Program Data Reuse
+
+The tool automatically checks for existing program data files (`programs_*.json`) before fetching new data from the APIs. If found, it will prompt you:
+
+```
+Found existing program data:
+  File: programs_20251006_143022.json
+  Collected: 2025-10-06 14:30:22
+  Programs: 150
+
+Use this data? (y/n): 
+```
+
+- **Choose 'y'** to reuse existing data (faster, no API calls)
+- **Choose 'n'** to fetch fresh data from HackerOne/BugCrowd APIs
+
+This saves time and API rate limits if you're just testing different target criteria.
+
 ### Basic Usage
 
 For reflected and stored XSS targets:
@@ -120,6 +138,21 @@ Enable subdomain discovery for wildcard scopes:
 ```bash
 python xss_target_finder.py --dom-based --subdomains
 ```
+
+### Verbose Mode
+
+Enable detailed output showing why each target is accepted or rejected:
+```bash
+python xss_target_finder.py --reflected-stored --verbose
+python xss_target_finder.py --dom-based -v
+```
+
+Verbose mode shows:
+- Detected frameworks and technologies
+- Number of JavaScript files
+- Security controls (CSP, WAF, authentication)
+- Detailed reason for acceptance/rejection
+- Individual target scores
 
 ## Output
 
@@ -163,16 +196,18 @@ Targets are scored from 0-100 based on:
 
 ## How It Works
 
-1. Fetches all public programs from configured platforms
-2. Extracts URL and wildcard scope targets
-3. Randomly selects programs for testing
-4. For each target:
+1. Checks for existing program data and prompts user to reuse or fetch fresh
+2. Fetches all public programs from configured platforms (if needed)
+3. Extracts URL and wildcard scope targets
+4. Randomly selects programs for testing
+5. For each target:
    - Detects technology stack and frameworks
    - Identifies security controls (CSP, WAF, auth)
    - Evaluates suitability for specified injection type
    - Calculates exploitability score
    - Saves promising targets to output file
-5. Continues indefinitely, discovering new targets over time
+6. Continues indefinitely with robust error handling
+7. Handles connection errors gracefully without stopping
 
 ## Notes
 
@@ -180,4 +215,8 @@ Targets are scored from 0-100 based on:
 - Random delays are included to avoid rate limiting
 - Results are appended to the output file as they're discovered
 - Press Ctrl+C to stop the tool gracefully
+- Connection errors during target testing are handled automatically - the tool continues running
+- Program data can be reused to save time and avoid unnecessary API calls
+- Each run creates a new results file with a unique timestamp
+- **The tool automatically prevents your system from going to sleep while running** - sleep mode is restored when you stop the tool
 

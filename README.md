@@ -221,6 +221,15 @@ The tool generates:
 - `programs_*.json` - Complete program data
 - `xss_targets_*.txt` - Scored targets (e.g., `https://example.com -- 85`)
 
+### Tips
+
+- The tool prompts to reuse existing program data, saving time and API rate limits
+- Use `--verbose` or `-v` to see detailed analysis of why targets are accepted/rejected
+- Connection errors during testing are handled gracefully - the tool keeps running
+- Each run creates a new results file with timestamps
+- Your system will not go to sleep while the tool is running
+- Press Ctrl+C to stop gracefully
+
 See `find-programs/README.md` for complete documentation.
 
 ## ⚠️ Security Notice
