@@ -406,12 +406,19 @@ class TargetFinder:
             'custom_js': False,
             'js_files': [],
             'webpack_exposed': False,
-            'response_headers': {}
+            'response_headers': {},
+            'status_code': None
         }
         
         try:
             response = self.session.get(url, timeout=15, allow_redirects=True, verify=True)
+            tech_info['status_code'] = response.status_code
             tech_info['response_headers'] = dict(response.headers)
+            
+            if response.status_code != 200:
+                if self.verbose:
+                    logger.info(f"Non-200 status code for {url}: {response.status_code}")
+                return tech_info
             
             if 'Content-Security-Policy' in response.headers:
                 tech_info['has_csp'] = True
@@ -499,6 +506,12 @@ class TargetFinder:
         return tech_info
         
     def is_good_target(self, tech_info: Dict, url: str) -> tuple[bool, str]:
+        if tech_info['status_code'] != 200:
+            reason = f"Non-200 status code: {tech_info['status_code'] or 'No response'}"
+            if self.verbose:
+                logger.info(f"❌ {url} - {reason}")
+            return False, reason
+        
         if self.injection_type == 'reflected-stored':
             virtual_dom_frameworks = ['react', 'vue', 'angular', 'svelte']
             detected_frameworks = [fw for fw in virtual_dom_frameworks if fw in tech_info['frameworks']]
@@ -593,6 +606,7 @@ class TargetFinder:
             tech_info = self.detect_technology_stack(url)
             
             if self.verbose:
+                logger.info(f"  Status code: {tech_info['status_code']}")
                 logger.info(f"  Frameworks detected: {tech_info['frameworks'] or 'None'}")
                 logger.info(f"  Custom JS: {tech_info['custom_js']}")
                 logger.info(f"  JS files: {len(tech_info['js_files'])}")
