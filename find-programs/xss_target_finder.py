@@ -8,11 +8,13 @@ import requests
 import time
 import random
 from datetime import datetime
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, urljoin, parse_qs
 import logging
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Tuple
 import re
 import glob
+import hashlib
+from collections import defaultdict
 
 try:
     from selenium import webdriver
@@ -395,6 +397,380 @@ class TargetFinder:
             subdomains.append(f"https://{domain}")
             
         return subdomains
+    
+    def fetch_javascript_content(self, url: str, js_url: str) -> Optional[str]:
+        try:
+            full_url = urljoin(url, js_url)
+            response = self.session.get(full_url, timeout=15, verify=True)
+            if response.status_code == 200:
+                return response.text
+        except Exception as e:
+            if self.verbose:
+                logger.warning(f"Failed to fetch JS from {js_url}: {e}")
+        return None
+    
+    def is_custom_javascript(self, js_content: str, js_url: str) -> Tuple[bool, str]:
+        if not js_content:
+            return False, "No content"
+        
+        indicators = {
+            'npm_package': 0,
+            'custom': 0
+        }
+        
+        npm_patterns = [
+            r'node_modules',
+            r'/*!.*?https?://npmjs\.com',
+            r'@license',
+            r'webpack://',
+            r'//# sourceMappingURL=.*node_modules',
+            r'typeof exports.*typeof module',
+            r'__webpack_require__',
+            r'__esModule',
+        ]
+        
+        for pattern in npm_patterns:
+            if re.search(pattern, js_content[:5000], re.IGNORECASE):
+                indicators['npm_package'] += 1
+        
+        custom_patterns = [
+            r'function\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*\(',
+            r'const\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*=',
+            r'let\s+[a-zA-Z_$][a-zA-Z0-9_$]*\s*=',
+            r'class\s+[a-zA-Z_$][a-zA-Z0-9_$]*',
+        ]
+        
+        for pattern in custom_patterns:
+            matches = re.findall(pattern, js_content[:10000])
+            if len(matches) > 5:
+                indicators['custom'] += 1
+        
+        parsed_url = urlparse(js_url)
+        path = parsed_url.path.lower()
+        
+        if any(marker in path for marker in ['bundle', 'app', 'main', 'custom', 'script']):
+            indicators['custom'] += 2
+        
+        if any(marker in path for marker in ['vendor', 'lib', 'framework', 'jquery', 'lodash', 'react', 'vue', 'angular']):
+            indicators['npm_package'] += 2
+        
+        if indicators['custom'] > indicators['npm_package']:
+            return True, f"custom:{indicators['custom']},npm:{indicators['npm_package']}"
+        elif indicators['npm_package'] > indicators['custom']:
+            return False, f"custom:{indicators['custom']},npm:{indicators['npm_package']}"
+        else:
+            return False, "unclear"
+    
+    def analyze_dom_xss_patterns(self, js_content: str, html_content: str = "") -> Dict:
+        patterns = {
+            'dangerous_sinks': [],
+            'sources': [],
+            'prototype_pollution': [],
+            'dangerous_functions': [],
+            'merge_operations': [],
+            'postmessage_handlers': [],
+            'storage_operations': [],
+            'event_handlers': [],
+            'dom_manipulation': [],
+            'framework_unsafe': [],
+        }
+        
+        sink_patterns = {
+            'innerHTML': r'\.innerHTML\s*[=+]',
+            'outerHTML': r'\.outerHTML\s*[=+]',
+            'insertAdjacentHTML': r'\.insertAdjacentHTML\s*\(',
+            'document.write': r'document\.write(ln)?\s*\(',
+            'eval': r'\beval\s*\(',
+            'Function_constructor': r'new\s+Function\s*\(',
+            'setTimeout_string': r'setTimeout\s*\(\s*["\']',
+            'setInterval_string': r'setInterval\s*\(\s*["\']',
+            'script_injection': r'createElement\s*\(\s*["\']script["\']',
+            'setAttribute_event': r'\.setAttribute\s*\(\s*["\']on\w+',
+            'srcdoc': r'\.srcdoc\s*=',
+            'location_assign': r'location\.(assign|replace|href)\s*[=\(]',
+            'element_src': r'\.src\s*=.*?(location|hash|search|href)',
+            'element_href': r'\.href\s*=.*?(location|hash|search|href)',
+        }
+        
+        for sink_name, pattern in sink_patterns.items():
+            matches = re.findall(pattern, js_content, re.IGNORECASE)
+            if matches:
+                patterns['dangerous_sinks'].append({
+                    'type': sink_name,
+                    'count': len(matches)
+                })
+        
+        source_patterns = {
+            'location.hash': r'location\.hash',
+            'location.search': r'location\.search',
+            'location.href': r'location\.href',
+            'document.referrer': r'document\.referrer',
+            'window.name': r'window\.name',
+            'postMessage': r'addEventListener\s*\(\s*["\']message["\']',
+            'URLSearchParams': r'new\s+URLSearchParams',
+        }
+        
+        for source_name, pattern in source_patterns.items():
+            matches = re.findall(pattern, js_content, re.IGNORECASE)
+            if matches:
+                patterns['sources'].append({
+                    'type': source_name,
+                    'count': len(matches)
+                })
+        
+        proto_patterns = {
+            'Object.assign': r'Object\.assign\s*\(',
+            '__proto__': r'__proto__',
+            'constructor': r'\[[\s\'"]*constructor[\s\'"]*\]',
+            'prototype': r'\.prototype\s*[=\[]',
+            'setPrototypeOf': r'Object\.setPrototypeOf',
+            'Object.create': r'Object\.create',
+        }
+        
+        for proto_name, pattern in proto_patterns.items():
+            matches = re.findall(pattern, js_content)
+            if matches:
+                patterns['prototype_pollution'].append({
+                    'type': proto_name,
+                    'count': len(matches)
+                })
+        
+        merge_patterns = {
+            'lodash_merge': r'_\.merge\s*\(',
+            'jQuery_extend': r'\$\.extend\s*\(',
+            'deepmerge': r'deepmerge\s*\(',
+            'Object.assign': r'Object\.assign\s*\(',
+            'spread_operator': r'\{\.\.\..*?\}',
+            'custom_merge': r'function\s+\w*merge\w*\s*\(',
+        }
+        
+        for merge_name, pattern in merge_patterns.items():
+            matches = re.findall(pattern, js_content, re.IGNORECASE)
+            if matches:
+                patterns['merge_operations'].append({
+                    'type': merge_name,
+                    'count': len(matches)
+                })
+        
+        postmessage_pattern = r'addEventListener\s*\(\s*["\']message["\'].*?\{[\s\S]{0,500}?\}'
+        postmessage_handlers = re.findall(postmessage_pattern, js_content, re.DOTALL)
+        for handler in postmessage_handlers:
+            has_origin_check = bool(re.search(r'origin\s*[!=]=', handler))
+            patterns['postmessage_handlers'].append({
+                'has_origin_check': has_origin_check,
+                'risky': not has_origin_check
+            })
+        
+        storage_patterns = {
+            'localStorage_read': r'localStorage\.getItem',
+            'sessionStorage_read': r'sessionStorage\.getItem',
+            'localStorage_write': r'localStorage\.setItem',
+            'cookie_read': r'document\.cookie',
+        }
+        
+        for storage_name, pattern in storage_patterns.items():
+            matches = re.findall(pattern, js_content)
+            if matches:
+                patterns['storage_operations'].append({
+                    'type': storage_name,
+                    'count': len(matches)
+                })
+        
+        event_patterns = {
+            'dynamic_handler': r'\[[\'"]\s*on\w+\s*[\'"]\]\s*=',
+            'setAttribute_on': r'\.setAttribute\s*\(\s*["\']on\w+',
+            'addEventListener': r'\.addEventListener\s*\(',
+        }
+        
+        for event_name, pattern in event_patterns.items():
+            matches = re.findall(pattern, js_content, re.IGNORECASE)
+            if matches:
+                patterns['event_handlers'].append({
+                    'type': event_name,
+                    'count': len(matches)
+                })
+        
+        framework_unsafe_patterns = {
+            'dangerouslySetInnerHTML': r'dangerouslySetInnerHTML',
+            'v-html': r'v-html',
+            'ng-bind-html': r'ng-bind-html',
+            '$sce.trustAsHtml': r'\$sce\.trustAsHtml',
+        }
+        
+        combined_content = js_content + "\n" + html_content
+        for framework_name, pattern in framework_unsafe_patterns.items():
+            matches = re.findall(pattern, combined_content, re.IGNORECASE)
+            if matches:
+                patterns['framework_unsafe'].append({
+                    'type': framework_name,
+                    'count': len(matches)
+                })
+        
+        return patterns
+    
+    def analyze_security_headers(self, headers: Dict) -> Dict:
+        security_analysis = {
+            'csp': {
+                'present': False,
+                'strict': True,
+                'unsafe_inline': False,
+                'unsafe_eval': False,
+                'directives': {},
+                'score': 0
+            },
+            'sri': {
+                'present': False,
+                'scripts_with_sri': 0
+            },
+            'x_frame_options': {
+                'present': False,
+                'value': None,
+                'secure': False
+            },
+            'content_type': {
+                'present': False,
+                'value': None,
+                'nosniff': False
+            },
+            'overall_score': 0
+        }
+        
+        csp_header = headers.get('Content-Security-Policy', '')
+        if csp_header:
+            security_analysis['csp']['present'] = True
+            
+            if "'unsafe-inline'" in csp_header:
+                security_analysis['csp']['unsafe_inline'] = True
+                security_analysis['csp']['strict'] = False
+            
+            if "'unsafe-eval'" in csp_header:
+                security_analysis['csp']['unsafe_eval'] = True
+                security_analysis['csp']['strict'] = False
+            
+            directives = {}
+            for directive in csp_header.split(';'):
+                directive = directive.strip()
+                if directive:
+                    parts = directive.split(None, 1)
+                    if len(parts) >= 1:
+                        directives[parts[0]] = parts[1] if len(parts) > 1 else ''
+            
+            security_analysis['csp']['directives'] = directives
+            
+            if security_analysis['csp']['strict']:
+                security_analysis['csp']['score'] = 30
+            elif security_analysis['csp']['unsafe_inline'] and not security_analysis['csp']['unsafe_eval']:
+                security_analysis['csp']['score'] = 15
+            else:
+                security_analysis['csp']['score'] = 5
+        else:
+            security_analysis['csp']['score'] = -20
+        
+        x_frame = headers.get('X-Frame-Options', '')
+        if x_frame:
+            security_analysis['x_frame_options']['present'] = True
+            security_analysis['x_frame_options']['value'] = x_frame
+            if x_frame.lower() in ['deny', 'sameorigin']:
+                security_analysis['x_frame_options']['secure'] = True
+        
+        content_type = headers.get('Content-Type', '')
+        if content_type:
+            security_analysis['content_type']['present'] = True
+            security_analysis['content_type']['value'] = content_type
+        
+        x_content_type = headers.get('X-Content-Type-Options', '')
+        if x_content_type and 'nosniff' in x_content_type.lower():
+            security_analysis['content_type']['nosniff'] = True
+        
+        security_analysis['overall_score'] = security_analysis['csp']['score']
+        
+        return security_analysis
+    
+    def analyze_inline_scripts(self, html_content: str) -> Dict:
+        inline_analysis = {
+            'count': 0,
+            'total_size': 0,
+            'has_nonce': False,
+            'patterns': {}
+        }
+        
+        script_pattern = r'<script[^>]*>(.*?)</script>'
+        inline_scripts = re.findall(script_pattern, html_content, re.DOTALL | re.IGNORECASE)
+        
+        inline_analysis['count'] = len(inline_scripts)
+        
+        nonce_pattern = r'<script[^>]*nonce=["\'][^"\']+["\']'
+        if re.search(nonce_pattern, html_content, re.IGNORECASE):
+            inline_analysis['has_nonce'] = True
+        
+        combined_scripts = '\n'.join(inline_scripts)
+        inline_analysis['total_size'] = len(combined_scripts)
+        
+        if combined_scripts:
+            inline_analysis['patterns'] = self.analyze_dom_xss_patterns(combined_scripts, html_content)
+        
+        return inline_analysis
+    
+    def check_source_maps(self, js_content: str, js_url: str) -> Dict:
+        sourcemap_info = {
+            'has_sourcemap': False,
+            'exposes_node_modules': False,
+            'sourcemap_url': None
+        }
+        
+        sourcemap_pattern = r'//[#@]\s*sourceMappingURL=(.+)'
+        match = re.search(sourcemap_pattern, js_content)
+        
+        if match:
+            sourcemap_info['has_sourcemap'] = True
+            sourcemap_info['sourcemap_url'] = match.group(1).strip()
+            
+            try:
+                sourcemap_url = urljoin(js_url, sourcemap_info['sourcemap_url'])
+                response = self.session.get(sourcemap_url, timeout=10)
+                if response.status_code == 200:
+                    sourcemap_content = response.text
+                    if 'node_modules' in sourcemap_content:
+                        sourcemap_info['exposes_node_modules'] = True
+            except:
+                pass
+        
+        return sourcemap_info
+    
+    def detect_vulnerable_libraries(self, js_content: str, html_content: str) -> List[Dict]:
+        vulnerable_libs = []
+        
+        library_patterns = {
+            'jquery': {
+                'pattern': r'jQuery\s+v?(\d+\.\d+\.\d+)',
+                'vulnerable_versions': ['1.', '2.', '3.0.', '3.1.', '3.2.', '3.3.', '3.4.0', '3.4.1']
+            },
+            'lodash': {
+                'pattern': r'lodash.*?(\d+\.\d+\.\d+)',
+                'vulnerable_versions': ['4.17.19', '4.17.18', '4.17.17', '4.17.16', '4.17.15']
+            },
+            'underscore': {
+                'pattern': r'underscore.*?(\d+\.\d+\.\d+)',
+                'vulnerable_versions': ['1.12.0', '1.11.0', '1.10.0', '1.9.', '1.8.']
+            },
+        }
+        
+        combined_content = js_content[:50000] + "\n" + html_content[:50000]
+        
+        for lib_name, lib_info in library_patterns.items():
+            match = re.search(lib_info['pattern'], combined_content, re.IGNORECASE)
+            if match:
+                version = match.group(1)
+                for vuln_version in lib_info['vulnerable_versions']:
+                    if version.startswith(vuln_version):
+                        vulnerable_libs.append({
+                            'library': lib_name,
+                            'version': version,
+                            'issue': 'Known vulnerable version'
+                        })
+                        break
+        
+        return vulnerable_libs
         
     def detect_technology_stack(self, url: str) -> Dict:
         tech_info = {
@@ -407,7 +783,18 @@ class TargetFinder:
             'js_files': [],
             'webpack_exposed': False,
             'response_headers': {},
-            'status_code': None
+            'status_code': None,
+            'dom_analysis': {
+                'custom_js_files': [],
+                'npm_js_files': [],
+                'inline_scripts': {},
+                'combined_patterns': {},
+                'security_headers': {},
+                'vulnerable_libraries': [],
+                'source_maps': [],
+                'has_user_input_surfaces': False,
+                'contenteditable_present': False,
+            }
         }
         
         try:
@@ -456,6 +843,101 @@ class TargetFinder:
             
             if len(script_tags) > 3:
                 tech_info['custom_js'] = True
+            
+            if self.injection_type == 'dom-based':
+                tech_info['dom_analysis']['security_headers'] = self.analyze_security_headers(tech_info['response_headers'])
+                
+                tech_info['dom_analysis']['inline_scripts'] = self.analyze_inline_scripts(response.text)
+                
+                sri_pattern = r'<script[^>]+integrity=["\'][^"\']+["\']'
+                sri_scripts = re.findall(sri_pattern, response.text, re.IGNORECASE)
+                tech_info['dom_analysis']['security_headers']['sri']['scripts_with_sri'] = len(sri_scripts)
+                if sri_scripts:
+                    tech_info['dom_analysis']['security_headers']['sri']['present'] = True
+                
+                user_input_patterns = [
+                    r'<(input|textarea)[^>]*>',
+                    r'<form[^>]*>',
+                    r'contenteditable\s*=\s*["\']true["\']',
+                    r'comment',
+                    r'wysiwyg',
+                ]
+                for pattern in user_input_patterns:
+                    if re.search(pattern, response.text.lower()):
+                        tech_info['dom_analysis']['has_user_input_surfaces'] = True
+                        break
+                
+                if re.search(r'contenteditable', response.text, re.IGNORECASE):
+                    tech_info['dom_analysis']['contenteditable_present'] = True
+                
+                all_js_content = []
+                all_js_patterns = {
+                    'dangerous_sinks': [],
+                    'sources': [],
+                    'prototype_pollution': [],
+                    'merge_operations': [],
+                    'postmessage_handlers': [],
+                    'storage_operations': [],
+                    'event_handlers': [],
+                    'framework_unsafe': [],
+                }
+                
+                js_files_to_analyze = script_tags[:10]
+                
+                for js_file in js_files_to_analyze:
+                    try:
+                        js_content = self.fetch_javascript_content(url, js_file)
+                        if js_content:
+                            is_custom, classification = self.is_custom_javascript(js_content, js_file)
+                            
+                            js_info = {
+                                'url': js_file,
+                                'is_custom': is_custom,
+                                'classification': classification,
+                                'size': len(js_content),
+                                'patterns': {}
+                            }
+                            
+                            if is_custom:
+                                patterns = self.analyze_dom_xss_patterns(js_content, response.text)
+                                js_info['patterns'] = patterns
+                                
+                                for key in all_js_patterns:
+                                    if key in patterns and key not in ['dangerous_sinks', 'sources']:
+                                        all_js_patterns[key].extend(patterns[key])
+                                
+                                sourcemap_info = self.check_source_maps(js_content, urljoin(url, js_file))
+                                if sourcemap_info['has_sourcemap']:
+                                    tech_info['dom_analysis']['source_maps'].append({
+                                        'js_file': js_file,
+                                        'exposes_node_modules': sourcemap_info['exposes_node_modules']
+                                    })
+                                
+                                tech_info['dom_analysis']['custom_js_files'].append(js_info)
+                                all_js_content.append(js_content[:50000])
+                            else:
+                                tech_info['dom_analysis']['npm_js_files'].append(js_info)
+                                all_js_content.append(js_content[:10000])
+                        
+                        time.sleep(0.5)
+                    except Exception as e:
+                        if self.verbose:
+                            logger.warning(f"Error analyzing JS file {js_file}: {e}")
+                
+                inline_scripts = tech_info['dom_analysis'].get('inline_scripts', {})
+                if inline_scripts.get('patterns'):
+                    inline_patterns = inline_scripts['patterns']
+                    if 'dangerous_sinks' in inline_patterns:
+                        all_js_patterns['dangerous_sinks'].extend(inline_patterns['dangerous_sinks'])
+                    if 'sources' in inline_patterns:
+                        all_js_patterns['sources'].extend(inline_patterns['sources'])
+                
+                tech_info['dom_analysis']['combined_patterns'] = all_js_patterns
+                
+                combined_js = '\n'.join(all_js_content)
+                tech_info['dom_analysis']['vulnerable_libraries'] = self.detect_vulnerable_libraries(
+                    combined_js, response.text
+                )
                 
         except requests.exceptions.ConnectionError as e:
             if self.verbose:
@@ -528,30 +1010,108 @@ class TargetFinder:
             return True, reason
             
         elif self.injection_type == 'dom-based':
-            if not tech_info['custom_js']:
-                reason = "Insufficient custom JavaScript"
-                if self.verbose:
-                    logger.info(f"❌ {url} - {reason}")
-                return False, reason
-                
-            virtual_dom_frameworks = ['react', 'vue', 'angular']
-            has_framework = any(fw in tech_info['frameworks'] for fw in virtual_dom_frameworks)
+            dom_analysis = tech_info.get('dom_analysis', {})
             
-            if has_framework and tech_info['webpack_exposed']:
-                reason = "Framework with exposed webpack - good for DOM-based XSS"
-                if self.verbose:
-                    logger.info(f"✓ {url} - {reason}")
-                return True, reason
-            elif has_framework and not tech_info['webpack_exposed']:
-                reason = "Framework detected but webpack not exposed"
+            reasons = []
+            score = 0
+            
+            custom_js_files = dom_analysis.get('custom_js_files', [])
+            if len(custom_js_files) == 0:
+                reason = "No custom JavaScript files detected"
                 if self.verbose:
                     logger.info(f"❌ {url} - {reason}")
                 return False, reason
-            elif not has_framework and tech_info['custom_js']:
-                reason = "Custom JavaScript without framework - good for DOM-based XSS"
+            
+            score += min(len(custom_js_files) * 2, 6)
+            reasons.append(f"{len(custom_js_files)} custom JS file(s)")
+            
+            combined_patterns = dom_analysis.get('combined_patterns', {})
+            
+            dangerous_sinks = combined_patterns.get('dangerous_sinks', [])
+            if dangerous_sinks:
+                score += min(len(dangerous_sinks) * 3, 15)
+                sink_types = list(set([s['type'] for s in dangerous_sinks[:3]]))
+                reasons.append(f"Sinks: {', '.join(sink_types)}")
+            
+            sources = combined_patterns.get('sources', [])
+            if sources:
+                score += min(len(sources) * 2, 10)
+                source_types = list(set([s['type'] for s in sources[:3]]))
+                reasons.append(f"Sources: {', '.join(source_types)}")
+            
+            prototype_pollution = combined_patterns.get('prototype_pollution', [])
+            if len(prototype_pollution) > 2:
+                score += min(len(prototype_pollution) * 2, 12)
+                proto_types = list(set([p['type'] for p in prototype_pollution[:2]]))
+                reasons.append(f"Prototype: {', '.join(proto_types)}")
+            
+            merge_operations = combined_patterns.get('merge_operations', [])
+            if len(merge_operations) > 1:
+                score += min(len(merge_operations) * 3, 12)
+                merge_types = list(set([m['type'] for m in merge_operations[:2]]))
+                reasons.append(f"Merge ops: {', '.join(merge_types)}")
+            
+            postmessage_handlers = combined_patterns.get('postmessage_handlers', [])
+            risky_postmessage = [h for h in postmessage_handlers if h.get('risky', False)]
+            if risky_postmessage:
+                score += min(len(risky_postmessage) * 8, 16)
+                reasons.append(f"Risky postMessage ({len(risky_postmessage)})")
+            
+            storage_ops = combined_patterns.get('storage_operations', [])
+            if len(storage_ops) > 0:
+                score += min(len(storage_ops), 5)
+            
+            inline_scripts = dom_analysis.get('inline_scripts', {})
+            if inline_scripts.get('count', 0) > 0:
+                inline_patterns = inline_scripts.get('patterns', {})
+                if inline_patterns.get('dangerous_sinks') or inline_patterns.get('sources'):
+                    score += 8
+                    reasons.append(f"Inline scripts ({inline_scripts['count']})")
+            
+            security_headers = dom_analysis.get('security_headers', {})
+            csp = security_headers.get('csp', {})
+            if not csp.get('present', False):
+                score += 8
+                reasons.append("No CSP")
+            elif csp.get('unsafe_inline', False) or csp.get('unsafe_eval', False):
+                score += 5
+                reasons.append("Weak CSP")
+            
+            vulnerable_libs = dom_analysis.get('vulnerable_libraries', [])
+            if vulnerable_libs:
+                score += min(len(vulnerable_libs) * 12, 24)
+                lib_names = [v['library'] for v in vulnerable_libs[:2]]
+                reasons.append(f"Vuln libs: {', '.join(lib_names)}")
+            
+            source_maps = dom_analysis.get('source_maps', [])
+            if any(sm.get('exposes_node_modules', False) for sm in source_maps):
+                score += 5
+                reasons.append("Source maps")
+            
+            if dom_analysis.get('has_user_input_surfaces', False):
+                score += 5
+                reasons.append("User input")
+            
+            if dom_analysis.get('contenteditable_present', False):
+                score += 4
+                reasons.append("ContentEditable")
+            
+            framework_unsafe = combined_patterns.get('framework_unsafe', [])
+            if framework_unsafe:
+                score += min(len(framework_unsafe) * 8, 16)
+                unsafe_types = [f['type'] for f in framework_unsafe[:2]]
+                reasons.append(f"Unsafe bindings: {', '.join(unsafe_types)}")
+            
+            if score >= 25:
+                reason = " | ".join(reasons[:6])
                 if self.verbose:
                     logger.info(f"✓ {url} - {reason}")
                 return True, reason
+            else:
+                reason = f"Insufficient indicators (score: {score}/25 needed)"
+                if self.verbose:
+                    logger.info(f"❌ {url} - {reason}")
+                return False, reason
                 
         return False, "Does not meet criteria"
         
@@ -580,12 +1140,60 @@ class TargetFinder:
                 score += 10
                 
         elif self.injection_type == 'dom-based':
-            if tech_info['custom_js']:
-                score += 15
-            if tech_info['webpack_exposed']:
-                score += 20
-            if len(tech_info['js_files']) > 10:
-                score += 10
+            dom_analysis = tech_info.get('dom_analysis', {})
+            
+            custom_js_count = len(dom_analysis.get('custom_js_files', []))
+            if custom_js_count > 0:
+                score += min(custom_js_count * 2, 10)
+            
+            combined_patterns = dom_analysis.get('combined_patterns', {})
+            
+            sink_count = len(combined_patterns.get('dangerous_sinks', []))
+            if sink_count > 0:
+                score += min(sink_count * 2, 10)
+            
+            source_count = len(combined_patterns.get('sources', []))
+            if source_count > 0:
+                score += min(source_count * 2, 8)
+            
+            proto_count = len(combined_patterns.get('prototype_pollution', []))
+            if proto_count > 2:
+                score += min(proto_count, 10)
+            
+            merge_count = len(combined_patterns.get('merge_operations', []))
+            if merge_count > 1:
+                score += min(merge_count * 2, 10)
+            
+            postmessage_handlers = combined_patterns.get('postmessage_handlers', [])
+            risky_postmessage = len([h for h in postmessage_handlers if h.get('risky', False)])
+            if risky_postmessage > 0:
+                score += min(risky_postmessage * 5, 15)
+            
+            vulnerable_libs = dom_analysis.get('vulnerable_libraries', [])
+            if vulnerable_libs:
+                score += min(len(vulnerable_libs) * 10, 20)
+            
+            security_headers = dom_analysis.get('security_headers', {})
+            csp = security_headers.get('csp', {})
+            if not csp.get('present', False):
+                score += 5
+            elif csp.get('unsafe_inline', False) or csp.get('unsafe_eval', False):
+                score += 3
+            
+            inline_scripts = dom_analysis.get('inline_scripts', {})
+            inline_patterns = inline_scripts.get('patterns', {})
+            if inline_patterns.get('dangerous_sinks') or inline_patterns.get('sources'):
+                score += 8
+            
+            if dom_analysis.get('has_user_input_surfaces', False):
+                score += 3
+            
+            if dom_analysis.get('contenteditable_present', False):
+                score += 3
+            
+            framework_unsafe_count = len(combined_patterns.get('framework_unsafe', []))
+            if framework_unsafe_count > 0:
+                score += min(framework_unsafe_count * 5, 10)
                 
         x_frame = tech_info['response_headers'].get('X-Frame-Options', '').lower()
         if x_frame in ['deny', 'sameorigin']:
@@ -613,6 +1221,36 @@ class TargetFinder:
                 logger.info(f"  CSP: {tech_info['has_csp']}")
                 logger.info(f"  WAF: {tech_info['has_waf']}")
                 logger.info(f"  Auth: {tech_info['has_auth']}")
+                
+                if self.injection_type == 'dom-based':
+                    dom_analysis = tech_info.get('dom_analysis', {})
+                    logger.info(f"  === DOM-Based Analysis ===")
+                    logger.info(f"  Custom JS files: {len(dom_analysis.get('custom_js_files', []))}")
+                    logger.info(f"  NPM JS files: {len(dom_analysis.get('npm_js_files', []))}")
+                    
+                    combined_patterns = dom_analysis.get('combined_patterns', {})
+                    logger.info(f"  Dangerous sinks: {len(combined_patterns.get('dangerous_sinks', []))}")
+                    logger.info(f"  Untrusted sources: {len(combined_patterns.get('sources', []))}")
+                    logger.info(f"  Prototype pollution vectors: {len(combined_patterns.get('prototype_pollution', []))}")
+                    logger.info(f"  Merge operations: {len(combined_patterns.get('merge_operations', []))}")
+                    
+                    postmessage = combined_patterns.get('postmessage_handlers', [])
+                    risky_pm = len([h for h in postmessage if h.get('risky', False)])
+                    logger.info(f"  Risky postMessage handlers: {risky_pm}")
+                    
+                    inline_scripts = dom_analysis.get('inline_scripts', {})
+                    logger.info(f"  Inline scripts: {inline_scripts.get('count', 0)} (nonce: {inline_scripts.get('has_nonce', False)})")
+                    
+                    vulnerable_libs = dom_analysis.get('vulnerable_libraries', [])
+                    if vulnerable_libs:
+                        logger.info(f"  Vulnerable libraries: {[v['library'] for v in vulnerable_libs]}")
+                    
+                    security_headers = dom_analysis.get('security_headers', {})
+                    csp = security_headers.get('csp', {})
+                    logger.info(f"  CSP strict: {csp.get('strict', False)} (unsafe-inline: {csp.get('unsafe_inline', False)})")
+                    
+                    logger.info(f"  User input surfaces: {dom_analysis.get('has_user_input_surfaces', False)}")
+                    logger.info(f"  ContentEditable: {dom_analysis.get('contenteditable_present', False)}")
             
             is_good, reason = self.is_good_target(tech_info, url)
             
@@ -926,4 +1564,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
